@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import require_runtime_or_skip
 from foamwb.branding import CASE_METADATA_DIR
 from foamwb.services import fence
 from foamwb.services.monitor import MonitorService
@@ -41,10 +42,10 @@ def runtime():
     manager = RuntimeManager()
     installations = manager.discover()
     if not installations:
-        pytest.skip("no OpenFOAM installation found")
+        require_runtime_or_skip("no OpenFOAM installation found")
     status = manager.verify(installations[0])
     if not status.is_usable:
-        pytest.skip(f"OpenFOAM present but not usable: {status.detail}")
+        require_runtime_or_skip(f"OpenFOAM present but not usable: {status.detail}")
     return manager, installations[0], status
 
 
@@ -57,14 +58,14 @@ def tutorials(runtime) -> Path:
     ):
         if candidate.is_dir():
             return candidate
-    pytest.skip("tutorial suite not reachable")
+    require_runtime_or_skip("tutorial suite not reachable")
 
 
 @pytest.fixture
 def cavity(tutorials, tmp_path) -> Path:
     source = tutorials / "incompressible" / "icoFoam" / "cavity" / "cavity"
     if not source.is_dir():
-        pytest.skip("cavity tutorial not found")
+        require_runtime_or_skip("cavity tutorial not found")
     destination = tmp_path / "cavity"
     shutil.copytree(source, destination)
     return destination

@@ -27,3 +27,19 @@ if str(TOOLS_DIR) not in sys.path:
 
 if str(TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_DIR))
+
+
+def require_runtime_or_skip(reason: str) -> None:
+    """Skip locally, fail loudly in CI.
+
+    A gate that silently skips is worse than no gate: it reports green while
+    verifying nothing, which is precisely the failure the §12.3 rows exist to
+    prevent. Setting FOAMWB_REQUIRE_RUNTIME=1 — as the golden-case CI job does —
+    turns "no OpenFOAM here" from an acceptable local condition into a build
+    failure, because in that job it means the runtime never installed.
+    """
+    import pytest
+
+    if os.environ.get("FOAMWB_REQUIRE_RUNTIME"):
+        pytest.fail(f"FOAMWB_REQUIRE_RUNTIME is set, so this must not be skipped: {reason}")
+    pytest.skip(reason)

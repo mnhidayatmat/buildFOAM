@@ -38,8 +38,8 @@ dependencies = ["PySide6>=6.9,<7"]
 buildfoam = "foamwb.ui.app:main"
 
 [project.urls]
-Homepage = "https://github.com/hidayat/buildfoam"
-Issues = "https://github.com/hidayat/buildfoam/issues"
+Homepage = "https://github.com/mnhidayatmat/buildFOAM"
+Issues = "https://github.com/mnhidayatmat/buildFOAM/issues"
 
 [dependency-groups]
 dev = [

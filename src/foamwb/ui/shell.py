@@ -156,6 +156,17 @@ class Shell(QMainWindow):
     def set_openfoam_version(self, version: str | None) -> None:
         self._footer.set_openfoam_version(version)
 
+    @Slot(RuntimeStatus)
+    def apply_runtime_status(self, status: RuntimeStatus) -> None:
+        """Adopt a detected runtime — state and version together.
+
+        One entry point rather than two calls, so the footer can never show a
+        ready runtime beside a stale version, or a version beside "not
+        installed". §7.9 rule 4 is about the footer as a whole, not each label.
+        """
+        self.set_runtime_status(status)
+        self.set_openfoam_version(status.openfoam_version)
+
     def set_active_case(self, case_name: str | None) -> None:
         self._footer.set_case(case_name)
         self.setWindowTitle(f"{case_name} — {APP_DISPLAY_NAME}" if case_name else APP_DISPLAY_NAME)

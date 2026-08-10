@@ -23,6 +23,7 @@ import check_branding
 import check_no_qt
 import check_translatable
 import check_version_literals
+from conftest import require_runtime_or_skip
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -223,3 +224,31 @@ class TestTranslatableGuard:
 
     def test_the_catalogue_itself_is_exempt(self) -> None:
         assert check_translatable.CATALOGUE.name == "strings.py"
+
+
+class TestRequireRuntimeGuard:
+    """A skipped gate must not read as a passing gate.
+
+    The §12.3 rows and the integration suite both skip when OpenFOAM is absent,
+    which is right on a developer's machine and wrong in the job whose entire
+    purpose is to install OpenFOAM and run them. Without this, that job would
+    report green having verified nothing — the exact failure mode the gate exists
+    to prevent, reproduced one level up.
+    """
+
+    def test_skips_when_no_runtime_is_demanded(self, monkeypatch) -> None:
+        monkeypatch.delenv("FOAMWB_REQUIRE_RUNTIME", raising=False)
+        with pytest.raises(pytest.skip.Exception):
+            require_runtime_or_skip("no OpenFOAM here")
+
+    def test_fails_when_ci_demands_a_runtime(self, monkeypatch) -> None:
+        monkeypatch.setenv("FOAMWB_REQUIRE_RUNTIME", "1")
+        with pytest.raises(pytest.fail.Exception, match="must not be skipped"):
+            require_runtime_or_skip("no OpenFOAM here")
+
+    def test_the_reason_survives_into_the_failure(self, monkeypatch) -> None:
+        # The job's log must say *why* the runtime was missing, not just that a
+        # test was not skipped.
+        monkeypatch.setenv("FOAMWB_REQUIRE_RUNTIME", "1")
+        with pytest.raises(pytest.fail.Exception, match="apt install failed"):
+            require_runtime_or_skip("apt install failed")

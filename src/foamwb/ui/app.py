@@ -25,6 +25,7 @@ from foamwb import __version__
 from foamwb.branding import APP_DISPLAY_NAME, APP_ID
 from foamwb.logs import Event, configure, get_logger, log_event
 from foamwb.paths import log_dir
+from foamwb.ui.probe import RuntimeProbe
 from foamwb.ui.shell import Shell
 from foamwb.ui.theme import DARK, LIGHT, Palette, stylesheet
 
@@ -82,9 +83,18 @@ def main(argv: list[str] | None = None) -> int:
     application, shell = build_application(argv)
     shell.show()
 
+    # Detection starts only after the window is up, so the three-second budget
+    # buys an interactive Hub rather than a probe the user did not ask for. The
+    # footer corrects itself when the answer arrives (FR-A2 allows one second for
+    # that, measured from the state change, not from launch).
+    probe = RuntimeProbe()
+    probe.finished.connect(shell.apply_runtime_status)
+    probe.start()
+
     try:
         code = application.exec()
     finally:
+        probe.stop()
         # Logged in a finally block so an abnormal exit still records that the
         # session ended, which is what makes a truncated diagnostics bundle
         # distinguishable from a crash (FR-A4, FR-A7).

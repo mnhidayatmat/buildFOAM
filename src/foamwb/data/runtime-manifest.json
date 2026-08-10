@@ -22,7 +22,13 @@
     "which must state exactly what will be installed and how much it costs before",
     "anything is written. Approximate and deliberately generous: a user who is",
     "told 2 GB and spends 1.6 GB is fine, one told 1 GB and spends 1.6 GB on a",
-    "nearly-full laptop is not."
+    "nearly-full laptop is not.",
+    "",
+    "The 'linux' block exists for the CI runner that hosts the \u00a712.3 golden-case",
+    "gate, and for the WSL distribution on Windows \u2014 the same packages serve both.",
+    "NG4 rules out a Linux *desktop* build; it does not rule out Linux as a place",
+    "OpenFOAM runs. Without this the gate would find no runtime in CI, skip every",
+    "test, and report green having verified nothing."
   ],
   "releases": {
     "v2606": {
@@ -48,6 +54,12 @@
       "dictionaries": {
         "transport": "transportProperties",
         "turbulence": "turbulenceProperties"
+      },
+      "linux": {
+        "apt_package": "openfoam2606-default",
+        "root": "/usr/lib/openfoam/openfoam2606",
+        "launcher": "etc/openfoam",
+        "bashrc": "/usr/lib/openfoam/openfoam2606/etc/bashrc"
       }
     },
     "v2512": {
@@ -74,6 +86,12 @@
       "dictionaries": {
         "transport": "transportProperties",
         "turbulence": "turbulenceProperties"
+      },
+      "linux": {
+        "apt_package": "openfoam2512-default",
+        "root": "/usr/lib/openfoam/openfoam2512",
+        "launcher": "etc/openfoam",
+        "bashrc": "/usr/lib/openfoam/openfoam2512/etc/bashrc"
       }
     },
     "v2506": {
@@ -100,6 +118,12 @@
       "dictionaries": {
         "transport": "transportProperties",
         "turbulence": "turbulenceProperties"
+      },
+      "linux": {
+        "apt_package": "openfoam2506-default",
+        "root": "/usr/lib/openfoam/openfoam2506",
+        "launcher": "etc/openfoam",
+        "bashrc": "/usr/lib/openfoam/openfoam2506/etc/bashrc"
       }
     }
   },

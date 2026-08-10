@@ -109,6 +109,20 @@ class RuntimeManager:
         """
         found: dict[Path, Installation] = {}
 
+        # Linux install roots come from the manifest (NFR-M3). They matter even
+        # though NG4 rules out a Linux desktop build: the §12.3 golden-case gate
+        # runs on a Linux CI runner, and without this it would find no runtime,
+        # skip every test, and report green having verified nothing.
+        for version in self._manifest.versions:
+            spec = self._manifest.release(version).platform("linux")
+            if spec is None or not spec.get("root"):
+                continue
+            launcher = Path(spec.get("root")) / (spec.launcher or "etc/openfoam")
+            if launcher.is_file():
+                found[launcher] = Installation(
+                    launcher=launcher, bundle=Path(spec["root"]), version=version
+                )
+
         for directory in self._application_dirs:
             if not directory.is_dir():
                 continue

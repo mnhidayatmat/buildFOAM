@@ -108,6 +108,12 @@ jobs:
       image: opencfd/openfoam-default:2512
       options: --user root
     steps:
+      - name: Tools the OpenFOAM image does not ship
+        # actions/checkout falls back to a tarball download without git, and
+        # setup-uv needs curl. Installing them explicitly beats debugging a
+        # confusing checkout failure later.
+        run: apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates
+
       - uses: actions/checkout@v4
 
       - uses: astral-sh/setup-uv@v5
@@ -117,10 +123,27 @@ jobs:
       - name: Install
         run: uv sync --group dev
 
+      - name: Confirm the runtime is actually present
+        # Fails loudly here rather than letting every test skip itself further
+        # down. Detection finds the Linux install through the manifest's `linux`
+        # block; if that path is wrong, this is where it says so.
+        run: |
+          uv run python -c "
+          from foamwb.services.runtime import RuntimeManager
+          status = RuntimeManager().detect()
+          print(status.state.value, status.openfoam_version, status.detail)
+          assert status.is_usable, status.detail
+          "
+
       - name: Numerical gate
         # Editor-invariance rows run on any toolchain: they compare two runs on
         # this machine and prove the editor changed nothing numerical. Rows that
         # compare against stored reference numbers skip themselves when the
         # toolchain differs, naming the mismatch — a cross-toolchain comparison
         # is invalid, not merely lenient.
+        env:
+          # Turns "no OpenFOAM here" from an acceptable local condition into a
+          # build failure. In this job a skip means the runtime never installed,
+          # and a gate that skips silently is worse than no gate.
+          FOAMWB_REQUIRE_RUNTIME: "1"
         run: uv run pytest -m requires_runtime -v

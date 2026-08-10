@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import require_runtime_or_skip
 from foamwb.branding import CASE_METADATA_DIR
 from foamwb.services.case import CaseService
 from foamwb.services.foamdict import Document
@@ -52,10 +53,10 @@ def runtime():
     manager = RuntimeManager()
     installations = manager.discover()
     if not installations:
-        pytest.skip("no OpenFOAM installation found")
+        require_runtime_or_skip("no OpenFOAM installation found")
     status = manager.verify(installations[0])
     if not status.is_usable:
-        pytest.skip(f"OpenFOAM not usable: {status.detail}")
+        require_runtime_or_skip(f"OpenFOAM not usable: {status.detail}")
     return manager, installations[0], status
 
 
@@ -68,7 +69,7 @@ def tutorials(runtime) -> Path:
     ):
         if candidate.is_dir():
             return candidate
-    pytest.skip("tutorial suite not reachable")
+    require_runtime_or_skip("tutorial suite not reachable")
 
 
 @pytest.fixture(scope="session")
