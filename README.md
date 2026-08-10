@@ -4,7 +4,7 @@
 
 > BuildFOAM is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com, and owner of the OPENFOAM® and OpenCFD® trade marks.
 
-**Status: M2 in progress — first real run works.** The service layer detects a real OpenFOAM installation, injects monitoring, runs `blockMesh` → `checkMesh` → solver with live log streaming, and reads residuals back from `postProcessing`. `FoamDict` passes the §12.2 round-trip corpus gate and the shell launches (`uv run buildfoam`). Not yet wired together: the Run view, ParaView launch, and the §12.3 golden-case harness in CI. The specification is [`docs/PRD-v1.0.md`](docs/PRD-v1.0.md).
+**Status: M2 in progress — the service layer is complete.** It detects and provisions a real OpenFOAM runtime, opens and classifies cases, injects monitoring, runs `blockMesh` → `checkMesh` → solver with live log streaming, reads residuals back from `postProcessing`, and locates ParaView. Both numerical gates pass: §12.2's round-trip corpus and §12.3's golden-case regression. The shell launches (`uv run buildfoam`) but none of this is wired to it yet — the Run view is what remains. The specification is [`docs/PRD-v1.0.md`](docs/PRD-v1.0.md).
 
 ---
 
@@ -18,7 +18,10 @@ src/foamwb/            Application. The import package is deliberately not named
   paths.py             Host-side application paths (§5.3)
   data/                The runtime manifest. The only place versions exist.
   services/            Pure Python. No Qt. Exercised headlessly.
+    case.py              Open/classify a case, tree hash, metadata (§5.1, §5.2)
     fence.py             The GUI-owned controlDict fence (FR-S3, NFR-C3)
+    functionals.py       Scalar reductions for the §12.3 gate
+    paraview.py          Locate ParaView, .foam stub (FR-V1, FR-V2)
     monitor.py           solverInfo .dat → time series (DEC-13, FR-S4)
     foamdict/lexer.py    Tokeniser. Byte-conserving by construction.
     foamdict/document.py Tolerant parser + round-trip-faithful editing API
@@ -27,6 +30,7 @@ src/foamwb/            Application. The import package is deliberately not named
     runtime/manifest.py  §3.4 version policy, read from data/
     runtime/manager.py   Detection + the canary (FR-R1, FR-R5)
     runtime/native.py    NativeSession — macOS, via the bundle launcher
+    runtime/provision.py Plan/install/verify a runtime (FR-R3, FR-R11)
     runtime/session.py   RuntimeSession / Process — the §4.2 abstraction
     runtime/status.py    RuntimeStatus with a machine-readable reason (FR-R2)
   ui/                  PySide6. The only subtree permitted to import Qt.
@@ -58,6 +62,15 @@ Coverage:
   ```
 
 One documented limitation and one upstream defect are recorded in `tests/corpus/corpus.json` with reasons, rather than silently excluded.
+
+## The numerical gate (§12.3)
+
+CFD output is **not bit-reproducible** across compiler, MPI, BLAS or CPU generation, so a hash-equality gate would fail spuriously the moment a CI image changed. The gate is therefore scalar functionals with explicit tolerances, and it splits in two:
+
+- **Editor invariance** runs on any toolchain. It parses and rewrites every dictionary in a case — the operation a form save performs when the user changes nothing — reruns the case, and asserts every functional is *identical*. §12.3 calls this "the one that actually protects users: it proves the editor changed nothing numerical, independently of whether the solver is reproducible."
+- **Absolute references** compare against values captured on a pinned toolchain, recorded in `tests/golden/references.json` alongside the fingerprint they are only valid against. On a different toolchain they skip, naming the mismatch — a cross-toolchain comparison is invalid, not merely lenient.
+
+References are regenerated only by `tools/capture_golden.py` in an explicit, reviewed commit that states why. A drift is a defect until proven to be an intended upstream change.
 
 ## Development
 

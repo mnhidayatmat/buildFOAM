@@ -88,3 +88,39 @@ jobs:
           name: coverage-${{ matrix.os }}
           path: coverage.xml
           if-no-files-found: ignore
+
+  golden:
+    # §12.3's numerical gate. Linux, because that is where OpenFOAM installs from
+    # a package repository without a GUI installer — NG4 rules out a Linux
+    # *desktop* build, not a Linux CI runner.
+    #
+    # The container digest and the OpenFOAM package version are pinned and are
+    # part of the reference, not incidental to it: §12.3 defines the gate on
+    # scalar functionals captured on a pinned toolchain, because CFD output is
+    # not bit-reproducible across compiler, MPI or CPU generation.
+    #
+    # Reference values are regenerated only by an explicit, reviewed commit that
+    # also states why. A drift is a defect until proven to be an intended
+    # upstream change.
+    name: Golden-case regression (§12.3)
+    runs-on: ubuntu-latest
+    container:
+      image: opencfd/openfoam-default:2512
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --group dev
+
+      - name: Numerical gate
+        # Editor-invariance rows run on any toolchain: they compare two runs on
+        # this machine and prove the editor changed nothing numerical. Rows that
+        # compare against stored reference numbers skip themselves when the
+        # toolchain differs, naming the mismatch — a cross-toolchain comparison
+        # is invalid, not merely lenient.
+        run: uv run pytest -m requires_runtime -v

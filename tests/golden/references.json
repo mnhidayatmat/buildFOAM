@@ -1,0 +1,34 @@
+{
+  "cases": {
+    "cavity": {
+      "case": "cavity",
+      "cell_counts": {
+        "U": 1200,
+        "p": 400
+      },
+      "final_time": "0.5",
+      "l2_norms": {
+        "U": 5.029067842090731,
+        "p": 10.56131872514537
+      },
+      "volume_value": 0.02226853
+    },
+    "damBreak": {
+      "case": "damBreak",
+      "cell_counts": {
+        "alpha.water": 2268
+      },
+      "final_time": "1",
+      "l2_norms": {
+        "alpha.water": 18.90098092669278
+      },
+      "volume_value": 0.0006321253
+    }
+  },
+  "reason": "Initial capture on v2512 / macOS arm64 (M2).",
+  "toolchain": {
+    "machine": "arm64",
+    "openfoam": "v2512",
+    "platform": "Darwin"
+  }
+}
