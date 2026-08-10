@@ -79,7 +79,28 @@ jobs:
         # NFR-M2 coverage floors are configured in pyproject; the per-module
         # 80% floor on CaseService and RunController is asserted separately once
         # those modules exist (M2, M4).
-        run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest --cov --cov-report=term-missing --cov-report=xml 2>&1 \
+            | tee pytest-output.txt
+
+      - name: Surface failures
+        # Logs need repository-admin rights to download, and artifacts need a
+        # token, so a failure here is otherwise invisible to anyone without
+        # them — including from the phone notification that reports it. The
+        # ::error:: workflow command turns each failing test into a check
+        # annotation, which is public. It also puts the reason in the PR UI
+        # without anyone opening a log.
+        if: failure()
+        shell: bash
+        run: |
+          echo "::group::pytest output (tail)"
+          tail -n 300 pytest-output.txt || echo "no output captured"
+          echo "::endgroup::"
+          grep -E '^(FAILED|ERROR) ' pytest-output.txt | head -n 25 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done || true
 
       - name: Upload coverage
         if: always()
@@ -168,4 +189,24 @@ jobs:
           # build failure. In this job a skip means the runtime never installed,
           # and a gate that skips silently is worse than no gate.
           FOAMWB_REQUIRE_RUNTIME: "1"
-        run: uv run pytest -m requires_runtime -v
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -m requires_runtime -v 2>&1 | tee pytest-output.txt
+
+      - name: Surface failures
+        # Logs need repository-admin rights to download, and artifacts need a
+        # token, so a failure here is otherwise invisible to anyone without
+        # them — including from the phone notification that reports it. The
+        # ::error:: workflow command turns each failing test into a check
+        # annotation, which is public. It also puts the reason in the PR UI
+        # without anyone opening a log.
+        if: failure()
+        shell: bash
+        run: |
+          echo "::group::pytest output (tail)"
+          tail -n 300 pytest-output.txt || echo "no output captured"
+          echo "::endgroup::"
+          grep -E '^(FAILED|ERROR) ' pytest-output.txt | head -n 25 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done || true

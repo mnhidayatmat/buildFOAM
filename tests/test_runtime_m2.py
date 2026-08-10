@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,21 @@ from foamwb.services.runtime.manifest import (
 @pytest.fixture
 def manifest():
     return load_manifest()
+
+
+#: These tests stand a shell script in for a real OpenFOAM entry point and then
+#: execute it. Windows cannot run a `#!/bin/sh` file at all, so the fixture — not
+#: the behaviour — is what fails there.
+#:
+#: Skipping is honest rather than convenient: NativeSession is the macOS and
+#: Linux implementation. Windows gets `WslSession` at M3, whose entry point is a
+#: WSL distribution rather than a script on the host, and which will need its own
+#: fixtures. Pretending otherwise would mean either a red build or a test that
+#: proves nothing about the code that will actually run there.
+posix_entry_point = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="uses a shell script as an entry point; Windows runs WslSession (M3)",
+)
 
 
 class TestManifest:
@@ -183,6 +199,7 @@ class TestDiscovery:
         assert RuntimeManager(application_dirs=(tmp_path,)).discover()
 
 
+@posix_entry_point
 class TestVerification:
     """FR-R5 — installed and works are different claims."""
 
@@ -264,6 +281,7 @@ class TestVerification:
         assert status.openfoam_version == "v2512"
 
 
+@posix_entry_point
 class TestDetect:
     def test_no_installation_reports_missing(self, tmp_path, monkeypatch) -> None:
         monkeypatch.delenv("WM_PROJECT_DIR", raising=False)
@@ -299,6 +317,7 @@ class TestDetect:
         assert not status.is_usable
 
 
+@posix_entry_point
 class TestSessionModes:
     """Two entry points, because installations differ (§3.2, §3.3)."""
 

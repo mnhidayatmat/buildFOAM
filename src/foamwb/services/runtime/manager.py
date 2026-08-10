@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -314,6 +315,49 @@ class RuntimeManager:
 
     def session_for(self, installation: Installation) -> NativeSession:
         return NativeSession(installation.launcher, bashrc=installation.bashrc)
+
+    def environment(
+        self,
+        installation: Installation,
+        variables: Sequence[str],
+        *,
+        timeout: float = DEFAULT_CANARY_TIMEOUT,
+    ) -> dict[str, str]:
+        """Read variables from the sourced OpenFOAM environment.
+
+        Asking the runtime where its own files are, rather than guessing paths
+        per platform. ``$FOAM_TUTORIALS`` is a mounted disk image on macOS, a
+        package directory on Debian and a distribution path under WSL — three
+        answers to one question the environment already knows.
+
+        Values are read one per line in the order requested, so a caller gets a
+        dictionary rather than having to parse.
+        """
+        script = "; ".join(f'printf "%s\\n" "${{{name}}}"' for name in variables)
+        session = self.session_for(installation)
+        try:
+            code, output = session.run_to_completion(["bash", "-c", script], timeout=timeout)
+        except (OSError, TimeoutError):
+            return {}
+        finally:
+            session.close()
+
+        if code != 0:
+            return {}
+        lines = output.splitlines()
+        return {
+            name: lines[index].strip()
+            for index, name in enumerate(variables)
+            if index < len(lines) and lines[index].strip()
+        }
+
+    def tutorials_dir(self, installation: Installation) -> Path | None:
+        """Where this installation keeps its tutorial suite, or ``None``."""
+        value = self.environment(installation, ("FOAM_TUTORIALS",)).get("FOAM_TUTORIALS")
+        if not value:
+            return None
+        path = Path(value)
+        return path if path.is_dir() else None
 
     # -- provisioning ------------------------------------------------------
 

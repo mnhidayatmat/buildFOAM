@@ -62,14 +62,14 @@ def runtime():
 
 @pytest.fixture(scope="session")
 def tutorials(runtime) -> Path:
-    _manager, installation, _status = runtime
-    for candidate in (
-        installation.bundle / "tutorials",
-        Path("/Volumes") / installation.bundle.stem.replace(".app", "") / "tutorials",
-    ):
-        if candidate.is_dir():
-            return candidate
-    require_runtime_or_skip("tutorial suite not reachable")
+    # Asked of the runtime rather than guessed: $FOAM_TUTORIALS is a mounted disk
+    # image on macOS, a package directory on Debian and a distribution path under
+    # WSL, and the environment already knows which.
+    manager, installation, _status = runtime
+    found = manager.tutorials_dir(installation)
+    if found is None:
+        require_runtime_or_skip(f"tutorial suite not reachable from {installation.entry_point}")
+    return found
 
 
 @pytest.fixture(scope="session")
