@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "lineage": "esi",
+  "default": "v2606",
+  "minimum_supported": "v2506",
+  "_comment": [
+    "Every OpenFOAM release the application knows how to provision and drive (§3.4).",
+    "No version number appears anywhere in application code (NFR-M3) — this file is",
+    "the only place they live, and it ships over the content channel independently",
+    "of the application, so a new ESI release is supported without an app release.",
+    "",
+    "'verified' records whether the entry has been exercised against a real install.",
+    "The others are transcribed from the published packaging and are expected to",
+    "work, but saying so plainly is cheaper than a support ticket that discovers it.",
+    "",
+    "The macOS entries describe a Homebrew *cask* — the gerlero tap distributes an",
+    "OpenFOAM.app bundle whose payload is a disk image mounted on demand, not the",
+    "formula PRD §3.3 assumes. 'cask_version' is the app's own version, which is",
+    "independent of the OpenFOAM release it carries."
+  ],
+  "releases": {
+    "v2606": {
+      "released": "2026-06-26",
+      "verified": false,
+      "windows": {
+        "apt_package": "openfoam2606-default",
+        "bashrc": "/usr/lib/openfoam/openfoam2606/etc/bashrc"
+      },
+      "macos": {
+        "cask": "gerlero/openfoam/openfoam",
+        "app_name": "OpenFOAM-v2606",
+        "launcher": "Contents/Resources/etc/openfoam",
+        "min_macos": "14.0",
+        "arch": ["arm64"]
+      },
+      "dictionaries": {
+        "transport": "transportProperties",
+        "turbulence": "turbulenceProperties"
+      }
+    },
+    "v2512": {
+      "released": "2025-12-23",
+      "verified": true,
+      "windows": {
+        "apt_package": "openfoam2512-default",
+        "bashrc": "/usr/lib/openfoam/openfoam2512/etc/bashrc"
+      },
+      "macos": {
+        "cask": "gerlero/openfoam/openfoam",
+        "app_name": "OpenFOAM-v2512",
+        "cask_version": "2.1.3",
+        "launcher": "Contents/Resources/etc/openfoam",
+        "min_macos": "14.0",
+        "arch": ["arm64"]
+      },
+      "dictionaries": {
+        "transport": "transportProperties",
+        "turbulence": "turbulenceProperties"
+      }
+    },
+    "v2506": {
+      "released": "2025-06-27",
+      "verified": false,
+      "windows": {
+        "apt_package": "openfoam2506-default",
+        "bashrc": "/usr/lib/openfoam/openfoam2506/etc/bashrc"
+      },
+      "macos": {
+        "cask": "gerlero/openfoam/openfoam",
+        "app_name": "OpenFOAM-v2506",
+        "launcher": "Contents/Resources/etc/openfoam",
+        "min_macos": "14.0",
+        "arch": ["arm64", "x86_64"]
+      },
+      "dictionaries": {
+        "transport": "transportProperties",
+        "turbulence": "turbulenceProperties"
+      }
+    }
+  }
+}

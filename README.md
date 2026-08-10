@@ -4,7 +4,7 @@
 
 > BuildFOAM is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com, and owner of the OPENFOAM® and OpenCFD® trade marks.
 
-**Status: M1 complete.** The shell launches (`uv run buildfoam`) with the Hub, nav rail, status footer and view stack, and **`FoamDict` passes the §12.2 round-trip corpus test** — the gate §11 says must not be passed without. No runtime is detected and no case can be opened yet; those are M2 and M4. The specification is [`docs/PRD-v1.0.md`](docs/PRD-v1.0.md).
+**Status: M2 in progress — first real run works.** The service layer detects a real OpenFOAM installation, injects monitoring, runs `blockMesh` → `checkMesh` → solver with live log streaming, and reads residuals back from `postProcessing`. `FoamDict` passes the §12.2 round-trip corpus gate and the shell launches (`uv run buildfoam`). Not yet wired together: the Run view, ParaView launch, and the §12.3 golden-case harness in CI. The specification is [`docs/PRD-v1.0.md`](docs/PRD-v1.0.md).
 
 ---
 
@@ -16,10 +16,17 @@ src/foamwb/            Application. The import package is deliberately not named
   codes.py             §9 error taxonomy: stable codes + guide anchors
   logs.py              Structured JSON-lines logging (NFR-M4)
   paths.py             Host-side application paths (§5.3)
+  data/                The runtime manifest. The only place versions exist.
   services/            Pure Python. No Qt. Exercised headlessly.
+    fence.py             The GUI-owned controlDict fence (FR-S3, NFR-C3)
+    monitor.py           solverInfo .dat → time series (DEC-13, FR-S4)
     foamdict/lexer.py    Tokeniser. Byte-conserving by construction.
     foamdict/document.py Tolerant parser + round-trip-faithful editing API
     run/plan.py          RunPlan / Stage — the §4.3 abstraction
+    run/controller.py    Executes a plan, streams output (FR-S1, FR-S5)
+    runtime/manifest.py  §3.4 version policy, read from data/
+    runtime/manager.py   Detection + the canary (FR-R1, FR-R5)
+    runtime/native.py    NativeSession — macOS, via the bundle launcher
     runtime/session.py   RuntimeSession / Process — the §4.2 abstraction
     runtime/status.py    RuntimeStatus with a machine-readable reason (FR-R2)
   ui/                  PySide6. The only subtree permitted to import Qt.
@@ -70,7 +77,11 @@ uv run python tools/check_version_literals.py
 uv run python tools/check_translatable.py
 ```
 
-Qt widget tests render offscreen, so the suite needs no display and works over ssh.
+Qt widget tests render offscreen, so the suite needs no display and works over ssh. Tests marked `requires_runtime` exercise a real OpenFOAM installation and skip when none is present:
+
+```sh
+uv run pytest -m requires_runtime      # needs OpenFOAM installed
+```
 
 CI runs all of the above on macOS and Windows. Linux is not a desktop target (NG4), but it becomes a CI target at M2 for the golden-case regression (§12.3), which needs a real OpenFOAM install.
 
@@ -93,6 +104,8 @@ The declared migration-shim surface, outside the guard's scope: `pyproject.toml`
 **DEC-06 — parallel-aware from M0.** v1.0 exposes sequential runs only, with `n_procs` fixed at 1, but `RunPlan` implements the full stage machinery. Hard-coding a serial pipeline is forbidden. `tests/test_run_plan.py` renders plans at `n_procs > 1` and asserts the `mpirun -np N … -parallel` form, so a serial short-cut fails CI now rather than surfacing at M10 as a rewrite.
 
 **FR-R2 — a runtime is never un-diagnosably broken.** `RuntimeStatus` refuses to construct in any non-ready state without a §9 code. The status footer is always visible and always truthful (§7.9), which is only achievable if "not working" is a value with structure. One setter drives both the footer and the Hub banner, so they cannot disagree.
+
+**NFR-M3 — versions live in data, not code.** `src/foamwb/data/runtime-manifest.json` is the only place an OpenFOAM version or a lineage-specific dictionary name appears. Services ask for a *role* (`transport`, `turbulence`) and the manifest answers with a filename, which is what keeps Foundation-lineage support additive (DEC-15) rather than a fork of every call site.
 
 **NFR-A2 — contrast is checked, not eyeballed.** Both palettes are asserted against the WCAG 2.1 formula in `tests/test_theme.py`, so a well-meant colour tweak cannot push the footer below legibility. Colour is never the sole carrier of meaning: each runtime state has a distinct glyph *shape* and a text label, so the footer reads correctly in greyscale, in a support screenshot, and to a colourblind user.
 
