@@ -1,0 +1,136 @@
+"""Error taxonomy (§9).
+
+Every failure has a stable code, a plain-language condition, and a guide anchor,
+so that a support conversation can start from a code rather than a screenshot.
+
+Two requirements depend on this table being data rather than scattered strings:
+
+* **FR-R2** — a machine-readable ``RuntimeStatus`` reason at all times.
+* **FR-G2** — every error code resolves to a guide page. The M7 exit criterion is
+  an automated link check with zero dangling anchors, which is only mechanisable
+  if the codes and their anchors live in one enumerable place.
+
+User-facing *message* text is deliberately not stored here. Messages are
+translatable (NFR-A5) and belong in the presentation layer's catalogue; this
+module holds the stable machine vocabulary that survives translation.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Final
+
+__all__ = ["Code", "ErrorCode", "by_id"]
+
+
+@dataclass(frozen=True, slots=True)
+class Code:
+    """One entry in the error taxonomy."""
+
+    id: str
+    """Stable identifier, e.g. ``E-R01``. Never reused, never renumbered."""
+
+    condition: str
+    """Short description of the condition, for logs and issue templates."""
+
+    guide_anchor: str
+    """Slug of the guide page section that documents the remediation (FR-G2)."""
+
+
+def _c(id_: str, condition: str, guide_anchor: str) -> Code:
+    return Code(id=id_, condition=condition, guide_anchor=guide_anchor)
+
+
+class ErrorCode:
+    """The taxonomy, grouped as in §9.
+
+    Abridged in the PRD and here alike — the full table is a living appendix.
+    Codes are added, never renumbered.
+    """
+
+    # -- Runtime (R) -------------------------------------------------------
+    VIRTUALIZATION_DISABLED = _c(
+        "E-R01", "Virtualization disabled in firmware", "runtime/virtualization-disabled"
+    )
+    NO_ADMIN_RIGHTS = _c("E-R02", "No administrator rights", "runtime/administrator-rights")
+    REBOOT_REQUIRED = _c("E-R03", "Reboot required after enabling WSL", "runtime/reboot-required")
+    DOWNLOAD_BLOCKED = _c(
+        "E-R04", "Download blocked by proxy or firewall", "runtime/download-blocked"
+    )
+    INSUFFICIENT_DISK = _c("E-R05", "Insufficient disk space", "runtime/insufficient-disk")
+    PACKAGE_MANAGER_FAILED = _c(
+        "E-R06", "apt or Homebrew failure", "runtime/package-manager-failed"
+    )
+    RUNTIME_BROKEN = _c(
+        "E-R07", "Runtime detected but canary command fails", "runtime/broken-install"
+    )
+    MACOS_INTEL_UNSUPPORTED = _c(
+        "E-R08", "Intel hardware, Homebrew tap unsupported", "runtime/intel-mac"
+    )
+    MACOS_GATEKEEPER_BLOCKED = _c(
+        "E-R09", "Gatekeeper or quarantine blocks a downloaded component", "runtime/gatekeeper"
+    )
+
+    # -- Case (C) ----------------------------------------------------------
+    NOT_A_CASE = _c("E-C01", "Directory is not a case", "cases/not-a-case")
+    PARSE_ERROR = _c("E-C02", "Dictionary parse error", "cases/parse-error")
+    MISSING_BOUNDARY_FIELD = _c(
+        "E-C03", "Missing boundaryField entry", "cases/missing-boundary-field"
+    )
+    PATCH_BC_INCOMPATIBLE = _c(
+        "E-C04", "Patch and boundary-condition type incompatible", "cases/patch-bc-mismatch"
+    )
+    MODIFIED_EXTERNALLY = _c(
+        "E-C05", "Case modified outside the application", "cases/modified-externally"
+    )
+    SLOW_PATH = _c("E-C06", "Case on a slow or network path", "cases/slow-storage")
+    VERSION_MISMATCH = _c(
+        "E-C07", "Case authored for an unsupported release", "cases/version-mismatch"
+    )
+
+    # -- Run (S) -----------------------------------------------------------
+    MESH_FAILED = _c("E-S01", "Mesh generation failed", "running/mesh-failed")
+    CHECKMESH_ERRORS = _c("E-S02", "checkMesh reports errors", "running/checkmesh-errors")
+    DIVERGED = _c("E-S03", "Solver diverged", "running/divergence")
+    FLOATING_POINT_EXCEPTION = _c("E-S04", "Floating point exception", "running/floating-point")
+    SOLVER_NOT_FOUND = _c("E-S05", "Solver binary not found", "running/solver-not-found")
+    OUT_OF_MEMORY = _c("E-S06", "Out of memory or OOM-killed", "running/out-of-memory")
+    DISK_FULL = _c("E-S07", "Disk full mid-run", "running/disk-full")
+    DECOMPOSITION_MISMATCH = _c(
+        "E-S08", "Processor count and numberOfSubdomains mismatch", "running/decomposition-mismatch"
+    )
+
+    # -- Content (L) -------------------------------------------------------
+    SIGNATURE_INVALID = _c("E-L01", "Signature verification failed", "library/signature-invalid")
+    CHECKSUM_MISMATCH = _c("E-L02", "Checksum mismatch", "library/checksum-mismatch")
+    UNKNOWN_PUBLISHER = _c(
+        "E-L03", "Sideloaded package from an unknown publisher", "library/sideloading"
+    )
+
+    # -- Post (V) ----------------------------------------------------------
+    PARAVIEW_NOT_FOUND = _c("E-V01", "ParaView not found", "postprocessing/paraview-not-found")
+    PARAVIEW_CANNOT_OPEN = _c(
+        "E-V02", "ParaView cannot open the case", "postprocessing/paraview-open-failed"
+    )
+
+    # -- Application (A) ---------------------------------------------------
+    UPDATE_FAILED = _c("E-A01", "Update failed and was rolled back", "application/update-failed")
+
+
+def _collect() -> dict[str, Code]:
+    codes = [v for v in vars(ErrorCode).values() if isinstance(v, Code)]
+    table: dict[str, Code] = {}
+    for code in codes:
+        if code.id in table:  # pragma: no cover - guarded by test_codes
+            raise AssertionError(f"Duplicate error code {code.id}")
+        table[code.id] = code
+    return table
+
+
+ALL_CODES: Final[dict[str, Code]] = _collect()
+"""Every code, keyed by id. The M7 guide link check iterates this."""
+
+
+def by_id(code_id: str) -> Code:
+    """Look up a code, raising :class:`KeyError` for an unknown id."""
+    return ALL_CODES[code_id]

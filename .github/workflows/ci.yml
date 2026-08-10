@@ -1,0 +1,80 @@
+name: CI
+
+# Both desktop platforms from M0 (§3.1). Linux is not a desktop target (NG4) but
+# joins as a CI-only job at M2, when the golden-case regression (§12.3) needs a
+# real OpenFOAM install to run the same RunPlan code path through NativeSession.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "1"
+
+jobs:
+  guards:
+    # The architectural guards are platform-independent and cheap, so they run
+    # once and fail fast rather than three times in the matrix.
+    name: Architectural guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --group dev
+
+      - name: Lint
+        run: uv run ruff check --output-format=github .
+
+      - name: Format
+        run: uv run ruff format --check .
+
+      - name: NFR-M1 — service layer imports no Qt
+        run: uv run python tools/check_no_qt.py
+
+      - name: NFR-M5 — product name appears exactly twice
+        run: uv run python tools/check_branding.py
+
+      - name: NFR-M3 — no version or lineage literals in code
+        run: uv run python tools/check_version_literals.py
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --group dev
+
+      - name: Test
+        # NFR-M2 coverage floors are configured in pyproject; the per-module
+        # 80% floor on FoamDict, CaseService and RunController is asserted
+        # separately once those modules exist (M1, M2, M4).
+        run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}
+          path: coverage.xml
+          if-no-files-found: ignore

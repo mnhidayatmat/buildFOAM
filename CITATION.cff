@@ -1,0 +1,24 @@
+# §13.4 — academic uptake is the return on this project, so make it citable from
+# v1.0. A DOI is minted via the Zenodo/GitHub release integration at M8; the
+# placeholder below is replaced with the concept DOI at first public release.
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "BuildFOAM: a desktop workbench for OpenFOAM"
+abstract: >-
+  A cross-platform desktop application that installs, configures and drives a
+  complete OpenFOAM workflow — mesh, solve, visualise — without the user opening
+  a terminal, with a built-in verification and validation workflow covering
+  turbulence-model selection, grid-convergence (GCI) studies and comparison
+  against experimental data.
+type: software
+authors:
+  - given-names: Hidayat
+    family-names: ""
+license: GPL-3.0-or-later
+version: 0.0.0
+keywords:
+  - OpenFOAM
+  - computational fluid dynamics
+  - verification and validation
+  - grid convergence index
+  - engineering education
