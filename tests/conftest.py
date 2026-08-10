@@ -43,3 +43,43 @@ def require_runtime_or_skip(reason: str) -> None:
     if os.environ.get("FOAMWB_REQUIRE_RUNTIME"):
         pytest.fail(f"FOAMWB_REQUIRE_RUNTIME is set, so this must not be skipped: {reason}")
     pytest.skip(reason)
+
+
+# ---------------------------------------------------------------------------
+# CI failure reporting
+# ---------------------------------------------------------------------------
+#
+# Job logs need repository-admin rights to download and artifacts need a token,
+# so on a public repository a failure is otherwise invisible to anyone without
+# them. These hooks print GitHub's ::error:: workflow command, which becomes a
+# check annotation — public, and visible in the PR UI without opening a log.
+#
+# Implemented inside pytest rather than as a shell step that greps its output:
+# the shell version reported nothing when pytest exited 3 (internal error),
+# because there were no FAILED lines to grep for. A reporter that only works
+# when the failure is ordinary is not much of a reporter.
+
+
+def _annotate(message: str) -> None:
+    if not os.environ.get("GITHUB_ACTIONS"):
+        return
+    # Newlines terminate a workflow command, so they are encoded rather than
+    # emitted — otherwise a multi-line traceback becomes one annotation plus
+    # several lines of ignored text.
+    safe = message.replace("\r", "").replace("\n", "%0A")
+    print(f"::error::{safe[:3000]}", flush=True)
+
+
+def pytest_internalerror(excrepr) -> None:
+    """Report a crash *in pytest itself* — the exit-code-3 case."""
+    _annotate(f"pytest internal error: {excrepr}")
+
+
+def pytest_runtest_logreport(report) -> None:
+    if report.failed:
+        _annotate(f"{report.nodeid} [{report.when}]\n{report.longreprtext}")
+
+
+def pytest_collectreport(report) -> None:
+    if report.failed:
+        _annotate(f"collection failed: {report.nodeid}\n{report.longreprtext}")
