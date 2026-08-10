@@ -66,9 +66,14 @@ jobs:
         run: uv sync --group dev
 
       - name: Test
+        # Includes the §12.2 round-trip gate over the vendored corpus, which is
+        # why the corpus is committed rather than fetched: CI has no OpenFOAM
+        # until M2. The wide sweep over a full tutorial suite is opt-in and runs
+        # locally (FOAMWB_TUTORIALS=... pytest -m slow).
+        #
         # NFR-M2 coverage floors are configured in pyproject; the per-module
-        # 80% floor on FoamDict, CaseService and RunController is asserted
-        # separately once those modules exist (M1, M2, M4).
+        # 80% floor on CaseService and RunController is asserted separately once
+        # those modules exist (M2, M4).
         run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
 
       - name: Upload coverage

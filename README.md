@@ -4,7 +4,7 @@
 
 > BuildFOAM is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com, and owner of the OPENFOAM® and OpenCFD® trade marks.
 
-**Status: M0 — foundations.** The application does not run yet. What exists is the repository, CI, the licence, the two interfaces everything else is built on (`RuntimeSession` and `RunPlan`), structured logging, and the three architectural guards described below. The specification is [`docs/PRD-v1.0.md`](docs/PRD-v1.0.md).
+**Status: M1 in progress — the parser gate is met.** The application does not run yet; there is no UI. What exists is the repository, CI, the licence, the two interfaces everything else is built on (`RuntimeSession` and `RunPlan`), structured logging, the three architectural guards described below, and **`FoamDict` passing the §12.2 round-trip corpus test** — the gate §11 says must not be passed without. The specification is [`docs/PRD-v1.0.md`](docs/PRD-v1.0.md).
 
 ---
 
@@ -17,13 +17,37 @@ src/foamwb/            Application. The import package is deliberately not named
   logs.py              Structured JSON-lines logging (NFR-M4)
   paths.py             Host-side application paths (§5.3)
   services/            Pure Python. No Qt. Exercised headlessly.
-    run/plan.py        RunPlan / Stage — the §4.3 abstraction
-    runtime/session.py RuntimeSession / Process — the §4.2 abstraction
-    runtime/status.py  RuntimeStatus with a machine-readable reason (FR-R2)
-  ui/                  PySide6. The only subtree permitted to import Qt. Empty until M1.
-tools/                 The three CI guards
+    foamdict/lexer.py    Tokeniser. Byte-conserving by construction.
+    foamdict/document.py Tolerant parser + round-trip-faithful editing API
+    run/plan.py          RunPlan / Stage — the §4.3 abstraction
+    runtime/session.py   RuntimeSession / Process — the §4.2 abstraction
+    runtime/status.py    RuntimeStatus with a machine-readable reason (FR-R2)
+  ui/                  PySide6. The only subtree permitted to import Qt. Empty until the shell lands.
+tools/                 The three CI guards + the corpus vendoring tool
+tests/corpus/          368 dictionaries from 23 tutorial cases, pinned to v2512
 tests/                 pytest suite, including tests of the guards themselves
 ```
+
+## The parser gate (§12.2)
+
+`FoamDict` is the M1 gate and the only mechanical guarantee behind D4 — that every file stays a valid, hand-editable OpenFOAM dictionary. The design point:
+
+**Byte-identical round-trip does not depend on understanding the grammar.** Every character lands in exactly one token, so `render()` is a concatenation and fidelity is a property of the data structure rather than something the emitter has to get right. The lexer asserts this on every parse.
+
+The corollary is what makes the parser usable on real cases: because fidelity is already guaranteed, the *structural* parser is free to be tolerant. It models what a form editor can edit and marks everything else opaque — `#ifeq`/`#else`/`#endif`, `#word`-generated keywords, `#eval{...}`, embedded C++ in `#codeStream`/`#{...#}`, macro inclusion as a dictionary body, bare top-level lists. Those are preserved untouched rather than rejected.
+
+What it does *not* tolerate is structural impossibility — an unbalanced brace, an unterminated string, a missing `;`. Those are E-C02 with file, line and column. OpenFOAM's own `fatal-*.dict` fixtures are in the corpus as a **must-reject** set: a parser loose enough to accept those is loose enough to swallow a user's real mistake.
+
+Coverage:
+
+- **368 vendored dictionaries** from 23 cases (§12.1 axes: incompressible/compressible, steady/transient, blockMesh/snappyHexMesh, single/multiphase), run in CI on every commit.
+- **9,781 dictionaries** in the full v2512 tutorial suite round-trip byte-for-byte locally. This sweep is opt-in — it needs an OpenFOAM install — and is what to run after any lexer change:
+
+  ```sh
+  FOAMWB_TUTORIALS=/path/to/tutorials uv run pytest tests/test_foamdict_sweep.py
+  ```
+
+One documented limitation and one upstream defect are recorded in `tests/corpus/corpus.json` with reasons, rather than silently excluded.
 
 ## Development
 
