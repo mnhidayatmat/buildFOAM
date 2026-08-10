@@ -1,0 +1,19 @@
+# Never translate line endings, anywhere in this repository.
+#
+# The test corpus is byte-sensitive by design: §12.2's gate asserts that parsing
+# and re-rendering a dictionary reproduces it exactly, and tests/corpus/corpus.json
+# records a sha256 of every vendored file. Git for Windows defaults to
+# core.autocrlf=true, so without this a checkout there silently rewrites every LF
+# to CRLF — the corpus hashes stop matching, and the one gate that guarantees the
+# editor never corrupts a user's case fails for a reason that has nothing to do
+# with the editor.
+#
+# Applied repository-wide rather than to tests/corpus alone. A CRLF shell script
+# or a CRLF workflow file is its own kind of broken, and this project has no file
+# that benefits from translation.
+* -text
+
+# The vendored corpus is reference data, not source. Marking it so keeps it out
+# of diff noise and language statistics.
+tests/corpus/** linguist-vendored
+docs/PRD-v1.0.md linguist-documentation

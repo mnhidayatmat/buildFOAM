@@ -3,12 +3,18 @@
 DEC-11 builds this platform first: there is no bridge, no elevation and no
 reboot, so M2 proves the *product* before M3 fights the *platform*.
 
-**How the environment is actually sourced.** The gerlero tap ships an
-``OpenFOAM.app`` bundle containing OpenFOAM's own ``etc/openfoam`` launcher —
-"run an OpenFOAM application after first sourcing the etc/bashrc file". Handing
-the launcher an argv is therefore the supported way in, and it is strictly better
-than sourcing ``bashrc`` ourselves: the environment is constructed by the code
-that owns it, so it cannot drift from what a terminal user gets.
+**Two ways in, because installations differ.** The gerlero tap ships an
+``OpenFOAM.app`` bundle containing OpenFOAM's own ``etc/openfoam`` launcher — "run
+an OpenFOAM application after first sourcing the etc/bashrc file" — and handing
+that an argv is the best route where it exists, since the environment is
+constructed by the code that owns it and cannot drift from what a terminal user
+gets.
+
+The Debian packages that serve Linux and the WSL distribution ship ``etc/bashrc``
+without that wrapper, so the session sources the bashrc itself and execs into the
+command. That is exactly §3.2's command bridge —
+``bash -lc "source <bashrc> && <cmd>"`` — which means this is not a detour for
+CI: it is the mechanism ``WslSession`` needs at M3, proven a milestone early.
 
 **The payload is a disk image.** The bundle mounts a volume on first use, which
 has two consequences worth stating rather than discovering. The first command
@@ -22,6 +28,7 @@ canary rather than caching a result.
 from __future__ import annotations
 
 import os
+import shlex
 import signal
 import subprocess
 import threading
@@ -112,9 +119,18 @@ class NativeProcess(Process):
 class NativeSession(RuntimeSession):
     """Runs OpenFOAM commands through a bundle's launcher script."""
 
-    def __init__(self, launcher: Path) -> None:
-        """``launcher`` is the ``etc/openfoam`` script inside the app bundle."""
+    def __init__(self, launcher: Path | None = None, *, bashrc: Path | None = None) -> None:
+        """Supply exactly one of ``launcher`` or ``bashrc``.
+
+        Refusing both and refusing neither, rather than picking a default: a
+        session that silently ran commands outside the OpenFOAM environment would
+        fail with "command not found" for every solver, which looks like a broken
+        installation rather than a misconfigured session.
+        """
+        if (launcher is None) == (bashrc is None):
+            raise ValueError("Provide exactly one of launcher or bashrc")
         self._launcher = launcher
+        self._bashrc = bashrc
         self._processes: list[NativeProcess] = []
 
     @property
@@ -122,8 +138,25 @@ class NativeSession(RuntimeSession):
         return RuntimeKind.NATIVE
 
     @property
-    def launcher(self) -> Path:
+    def launcher(self) -> Path | None:
         return self._launcher
+
+    @property
+    def bashrc(self) -> Path | None:
+        return self._bashrc
+
+    def _wrap(self, argv: Sequence[str]) -> list[str]:
+        """Render the argv that actually reaches the operating system."""
+        if self._launcher is not None:
+            return [str(self._launcher), *argv]
+
+        # The command is passed as positional parameters and expanded with "$@",
+        # so nothing in it is ever re-parsed by the shell. Only the bashrc path is
+        # interpolated, and it is quoted. A case directory containing a space, a
+        # quote or a $ therefore stays one argument.
+        assert self._bashrc is not None
+        script = f'source {shlex.quote(str(self._bashrc))} >/dev/null 2>&1 && exec "$@"'
+        return ["bash", "-c", script, "bash", *argv]
 
     # -- execution ---------------------------------------------------------
 
@@ -143,7 +176,7 @@ class NativeSession(RuntimeSession):
         if not argv:
             raise ValueError("argv must not be empty")
 
-        command = [str(self._launcher), *argv]
+        command = self._wrap(argv)
         environment = {**os.environ, **(env or {})}
 
         log_event(_log, Event.COMMAND_BEGIN, argv=list(argv), cwd=str(cwd) if cwd else None)

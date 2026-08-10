@@ -126,14 +126,36 @@ jobs:
       - name: Confirm the runtime is actually present
         # Fails loudly here rather than letting every test skip itself further
         # down. Detection finds the Linux install through the manifest's `linux`
-        # block; if that path is wrong, this is where it says so.
+        # block, and this step prints what it looked for — the first run failed
+        # here with nothing but an exit code, which cost a whole round trip to
+        # diagnose. A CI step that can fail should say why on the way out.
+        #
+        # Note the image sets no OpenFOAM environment: its variables come from
+        # the ENTRYPOINT, which GitHub Actions replaces. Detection therefore has
+        # to find the installation on disk rather than trust $WM_PROJECT_DIR.
         run: |
-          uv run python -c "
-          from foamwb.services.runtime import RuntimeManager
+          uv run python - <<'PROBE'
+          from pathlib import Path
+          from foamwb.services.runtime import RuntimeManager, load_manifest
+
+          manifest = load_manifest()
+          print("== looked for ==")
+          for version in manifest.versions:
+              spec = manifest.release(version).platform("linux")
+              root = Path(spec.get("root"))
+              print(f"  {version}: root={root} exists={root.is_dir()}")
+              for name in ("etc/openfoam", "etc/bashrc"):
+                  print(f"      {name}: {(root / name).is_file()}")
+
+          print("== what is actually there ==")
+          for probe in (Path("/usr/lib/openfoam"), Path("/opt"), Path("/openfoam")):
+              if probe.is_dir():
+                  print(f"  {probe}: {sorted(p.name for p in probe.iterdir())[:12]}")
+
           status = RuntimeManager().detect()
-          print(status.state.value, status.openfoam_version, status.detail)
+          print(f"== detect(): {status.state.value} {status.openfoam_version} {status.detail}")
           assert status.is_usable, status.detail
-          "
+          PROBE
 
       - name: Numerical gate
         # Editor-invariance rows run on any toolchain: they compare two runs on

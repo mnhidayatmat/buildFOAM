@@ -297,3 +297,160 @@ class TestDetect:
         status = RuntimeManager(application_dirs=(tmp_path,)).detect()
         assert status.state is RuntimeState.BROKEN
         assert not status.is_usable
+
+
+class TestSessionModes:
+    """Two entry points, because installations differ (§3.2, §3.3)."""
+
+    def test_a_launcher_is_invoked_directly(self, tmp_path) -> None:
+        from foamwb.services.runtime.native import NativeSession
+
+        launcher = tmp_path / "openfoam"
+        launcher.write_text('#!/bin/sh\nexec "$@"\n')
+        launcher.chmod(0o755)
+        session = NativeSession(launcher)
+        code, output = session.run_to_completion(["echo", "hello"], timeout=30)
+        session.close()
+        assert code == 0
+        assert output.strip() == "hello"
+
+    def test_a_bashrc_is_sourced_before_the_command(self, tmp_path) -> None:
+        # The Debian packages that serve Linux and the WSL distribution ship
+        # etc/bashrc without a wrapper. This is §3.2's command bridge, and it is
+        # what WslSession needs at M3.
+        from foamwb.services.runtime.native import NativeSession
+
+        bashrc = tmp_path / "bashrc"
+        bashrc.write_text("export WM_PROJECT_VERSION=vTEST\n")
+        session = NativeSession(bashrc=bashrc)
+        code, output = session.run_to_completion(
+            ["bash", "-c", "echo $WM_PROJECT_VERSION"], timeout=30
+        )
+        session.close()
+        assert code == 0
+        assert output.strip() == "vTEST"
+
+    def test_arguments_are_never_reparsed_by_the_shell(self, tmp_path) -> None:
+        # NFR-C4: a case directory with a space, a quote or a $ must stay one
+        # argument. The command is expanded with "$@", so the shell never sees it.
+        from foamwb.services.runtime.native import NativeSession
+
+        bashrc = tmp_path / "bashrc"
+        bashrc.write_text("export MARKER=expanded\n")
+        session = NativeSession(bashrc=bashrc)
+        code, output = session.run_to_completion(["echo", "a b", "c$MARKER", "d'e"], timeout=30)
+        session.close()
+        assert code == 0
+        assert output.strip() == "a b c$MARKER d'e"
+
+    def test_a_bashrc_path_with_spaces_survives(self, tmp_path) -> None:
+        from foamwb.services.runtime.native import NativeSession
+
+        directory = tmp_path / "my openfoam"
+        directory.mkdir()
+        bashrc = directory / "bashrc"
+        bashrc.write_text("export WM_PROJECT_VERSION=vTEST\n")
+        session = NativeSession(bashrc=bashrc)
+        code, output = session.run_to_completion(
+            ["bash", "-c", "echo $WM_PROJECT_VERSION"], timeout=30
+        )
+        session.close()
+        assert code == 0
+        assert output.strip() == "vTEST"
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{}, {"launcher": Path("/a"), "bashrc": Path("/b")}],
+    )
+    def test_exactly_one_entry_point_is_required(self, kwargs) -> None:
+        # A session with neither would run every solver outside the OpenFOAM
+        # environment, which looks like a broken installation rather than a
+        # misconfigured session.
+        from foamwb.services.runtime.native import NativeSession
+
+        with pytest.raises(ValueError, match="exactly one"):
+            NativeSession(**kwargs)
+
+
+class TestLinuxDiscovery:
+    """The layout that serves the CI runner and, at M3, the WSL distribution."""
+
+    def _linux_root(self, manifest) -> tuple[str, str]:
+        version = manifest.versions[0]
+        spec = manifest.release(version).platform("linux")
+        return version, spec.get("root")
+
+    def test_the_manifest_declares_a_linux_layout(self, manifest) -> None:
+        # Without this the gate finds no runtime in CI, skips every test, and
+        # reports green having verified nothing.
+        for version in manifest.versions:
+            spec = manifest.release(version).platform("linux")
+            assert spec is not None, version
+            assert spec.get("root"), version
+            assert spec.bashrc, version
+
+    def test_a_bashrc_only_installation_is_found(self, tmp_path) -> None:
+        # The Debian package ships etc/bashrc and no wrapper. Requiring the
+        # wrapper is exactly why the first CI run found nothing and every gate
+        # skipped itself.
+        from foamwb.services.runtime.manifest import parse_manifest
+
+        root = tmp_path / "openfoam"
+        (root / "etc").mkdir(parents=True)
+        (root / "etc" / "bashrc").write_text("export WM_PROJECT_VERSION=v0000\n")
+
+        manifest = parse_manifest(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "lineage": "esi",
+                    "default": "v0000",
+                    "minimum_supported": "v0000",
+                    "releases": {
+                        "v0000": {
+                            "linux": {
+                                "root": str(root),
+                                "launcher": "etc/openfoam",
+                                "bashrc": str(root / "etc" / "bashrc"),
+                            }
+                        }
+                    },
+                }
+            )
+        )
+
+        found = RuntimeManager(manifest, application_dirs=(tmp_path / "none",)).discover()
+        assert len(found) == 1
+        assert found[0].launcher is None
+        assert found[0].bashrc == root / "etc" / "bashrc"
+
+    def test_a_wrapper_is_preferred_when_both_exist(self, tmp_path) -> None:
+        from foamwb.services.runtime.manifest import parse_manifest
+
+        root = tmp_path / "openfoam"
+        (root / "etc").mkdir(parents=True)
+        (root / "etc" / "bashrc").write_text("x\n")
+        (root / "etc" / "openfoam").write_text("#!/bin/sh\n")
+
+        manifest = parse_manifest(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "lineage": "esi",
+                    "default": "v0000",
+                    "minimum_supported": "v0000",
+                    "releases": {
+                        "v0000": {
+                            "linux": {
+                                "root": str(root),
+                                "launcher": "etc/openfoam",
+                                "bashrc": str(root / "etc" / "bashrc"),
+                            }
+                        }
+                    },
+                }
+            )
+        )
+        found = RuntimeManager(manifest, application_dirs=(tmp_path / "none",)).discover()
+        assert found[0].launcher is not None
+        assert found[0].bashrc is None

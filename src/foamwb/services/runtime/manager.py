@@ -62,10 +62,14 @@ _CANARY = "blockMesh -help >/dev/null 2>&1 && printf '%s\\n' \"$WM_PROJECT_VERSI
 class Installation:
     """One OpenFOAM installation found on this machine."""
 
-    launcher: Path
-    """The ``etc/openfoam`` script that sources the environment."""
+    launcher: Path | None = None
+    """The ``etc/openfoam`` wrapper, where the installation ships one."""
 
-    bundle: Path
+    bashrc: Path | None = None
+    """``etc/bashrc``, used where there is no wrapper — the Debian packages that
+    serve Linux and the WSL distribution (§3.2)."""
+
+    bundle: Path = Path()
     version: str | None = None
     """Version as reported by the canary, or as guessed from the bundle name
     before verification. ``None`` when neither is available."""
@@ -75,6 +79,13 @@ class Installation:
     @property
     def label(self) -> str:
         return f"{self.version or 'unknown'} ({self.bundle.name})"
+
+    @property
+    def entry_point(self) -> Path:
+        """Whichever of the two exists — for logging and error messages."""
+        entry = self.launcher or self.bashrc
+        assert entry is not None
+        return entry
 
 
 class RuntimeManager:
@@ -117,11 +128,18 @@ class RuntimeManager:
             spec = self._manifest.release(version).platform("linux")
             if spec is None or not spec.get("root"):
                 continue
-            launcher = Path(spec.get("root")) / (spec.launcher or "etc/openfoam")
+            root = Path(spec.get("root"))
+            launcher = root / (spec.launcher or "etc/openfoam")
+            bashrc = Path(spec.bashrc) if spec.bashrc else root / "etc" / "bashrc"
+
+            # An installation is real if *either* entry point exists. The Debian
+            # packages ship etc/bashrc and no wrapper, and requiring the wrapper
+            # is exactly why the first CI run found nothing, skipped every gate,
+            # and would have reported green having verified nothing.
             if launcher.is_file():
-                found[launcher] = Installation(
-                    launcher=launcher, bundle=Path(spec["root"]), version=version
-                )
+                found[launcher] = Installation(launcher=launcher, bundle=root, version=version)
+            elif bashrc.is_file():
+                found[bashrc] = Installation(bashrc=bashrc, bundle=root, version=version)
 
         for directory in self._application_dirs:
             if not directory.is_dir():
@@ -186,14 +204,15 @@ class RuntimeManager:
         Every outcome carries a §9 code, because a status the user cannot act on
         is a dead end and a status support cannot name is a screenshot.
         """
-        if not installation.launcher.is_file():
+        entry = installation.launcher or installation.bashrc
+        if entry is None or not entry.is_file():
             return RuntimeStatus(
                 state=RuntimeState.BROKEN,
                 reason=ErrorCode.RUNTIME_BROKEN,
-                detail=f"Launcher not found: {installation.launcher}",
+                detail=f"No usable entry point for {installation.bundle}",
             )
 
-        session = NativeSession(installation.launcher)
+        session = self.session_for(installation)
         try:
             code, output = session.run_to_completion(["bash", "-c", _CANARY], timeout=timeout)
         except TimeoutError:
@@ -294,7 +313,7 @@ class RuntimeManager:
         return first_failure
 
     def session_for(self, installation: Installation) -> NativeSession:
-        return NativeSession(installation.launcher)
+        return NativeSession(installation.launcher, bashrc=installation.bashrc)
 
     # -- provisioning ------------------------------------------------------
 
