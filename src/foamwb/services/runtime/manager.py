@@ -33,6 +33,12 @@ from foamwb.codes import ErrorCode
 from foamwb.logs import Event, get_logger, log_event
 from foamwb.services.runtime.manifest import Manifest, load_manifest
 from foamwb.services.runtime.native import DEFAULT_CANARY_TIMEOUT, NativeSession
+from foamwb.services.runtime.provision import (
+    ProgressCallback,
+    Provisioner,
+    ProvisionPlan,
+    ProvisionResult,
+)
 from foamwb.services.runtime.status import RuntimeState, RuntimeStatus
 
 __all__ = ["Installation", "RuntimeManager"]
@@ -79,9 +85,11 @@ class RuntimeManager:
         manifest: Manifest | None = None,
         *,
         application_dirs: tuple[Path, ...] = _APPLICATION_DIRS,
+        provisioner: Provisioner | None = None,
     ) -> None:
         self._manifest = manifest or load_manifest()
         self._application_dirs = application_dirs
+        self._provisioner = provisioner or Provisioner(self._manifest)
 
     @property
     def manifest(self) -> Manifest:
@@ -273,6 +281,48 @@ class RuntimeManager:
 
     def session_for(self, installation: Installation) -> NativeSession:
         return NativeSession(installation.launcher)
+
+    # -- provisioning ------------------------------------------------------
+
+    @property
+    def provisioner(self) -> Provisioner:
+        return self._provisioner
+
+    def plan_provision(self, version: str | None = None) -> ProvisionPlan:
+        """Decide what installing would involve, without installing (§7.3 step 4).
+
+        Detection runs first so FR-R1 is honoured by construction: a machine that
+        already has a working OpenFOAM gets an adopt-only plan that downloads
+        nothing, and the user sees that on the review screen rather than being
+        asked to approve a download they do not need.
+        """
+        version = version or self._manifest.default_version
+        usable = any(
+            self.verify(installation).is_usable
+            and self.verify(installation).openfoam_version == version
+            for installation in self.discover()
+        )
+        return self._provisioner.plan(version, already_usable=usable)
+
+    def provision(
+        self, plan: ProvisionPlan, *, on_progress: ProgressCallback | None = None
+    ) -> tuple[ProvisionResult, RuntimeStatus]:
+        """Carry out a plan and then verify the result (FR-R5).
+
+        Verification is not optional and not the caller's to skip: "the installer
+        said OK" and "this machine can run CFD" are different claims, and §7.3
+        step 8 makes the second one the wizard's actual completion criterion.
+        A provisioning run that succeeded but cannot pass the canary is reported
+        as broken, not ready.
+        """
+        result = self._provisioner.provision(plan, on_progress=on_progress)
+        if not result.succeeded:
+            return result, RuntimeStatus(
+                state=RuntimeState.MISSING if not result.completed else RuntimeState.BROKEN,
+                reason=result.reason or ErrorCode.NOT_PROVISIONED,
+                detail=result.detail,
+            )
+        return result, self.detect()
 
 
 def _tail(text: str, lines: int) -> str:
