@@ -70,6 +70,13 @@ class ErrorCode:
     MACOS_GATEKEEPER_BLOCKED = _c(
         "E-R09", "Gatekeeper or quarantine blocks a downloaded component", "runtime/gatekeeper"
     )
+    NOT_PROVISIONED = _c("E-R10", "No runtime provisioned yet", "runtime/first-run")
+    """The expected first-launch state, and not an error the user caused.
+
+    It exists because FR-R2 requires a machine-readable reason for *every*
+    non-ready state, and reusing E-R07 would have the footer report a working
+    machine as broken — the precise failure §7.9 rule 4 forbids.
+    """
 
     # -- Case (C) ----------------------------------------------------------
     NOT_A_CASE = _c("E-C01", "Directory is not a case", "cases/not-a-case")

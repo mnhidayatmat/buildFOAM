@@ -39,11 +39,14 @@ class TestErrorTaxonomy:
             assert code.condition.strip() == code.condition
             assert "\n" not in code.condition
 
-    def test_all_nine_runtime_codes_are_present(self) -> None:
+    def test_runtime_codes_are_contiguous_from_one(self) -> None:
         # §9 table R is enumerated in FR-R2's acceptance criterion; every code
-        # must be reachable and shown in the status footer.
+        # must be reachable and shown in the status footer. Contiguity is
+        # asserted rather than a fixed count, because §9 is explicitly a living
+        # table — but a gap would mean a code was renumbered, which the ids
+        # promise never happens.
         runtime = sorted(c for c in ALL_CODES if c.startswith("E-R"))
-        assert runtime == [f"E-R{n:02d}" for n in range(1, 10)]
+        assert runtime == [f"E-R{n:02d}" for n in range(1, len(runtime) + 1)]
 
     def test_lookup_by_id(self) -> None:
         assert by_id("E-S03") is ErrorCode.DIVERGED

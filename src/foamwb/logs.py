@@ -75,6 +75,10 @@ class Event(StrEnum):
     RUN_STOP_REQUESTED = "run.stop.requested"
     RUN_END = "run.end"
 
+    # Shell navigation. Useful in a diagnostics bundle: "what was on screen when
+    # it failed?" is the first question triage asks.
+    UI_VIEW_SHOWN = "ui.view.shown"
+
     # Anything that surfaced a §9 code to the user
     ERROR_RAISED = "error.raised"
 

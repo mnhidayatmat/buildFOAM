@@ -21,6 +21,7 @@ import pytest
 
 import check_branding
 import check_no_qt
+import check_translatable
 import check_version_literals
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -28,7 +29,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.mark.parametrize(
     "script",
-    ["check_no_qt.py", "check_branding.py", "check_version_literals.py"],
+    [
+        "check_no_qt.py",
+        "check_branding.py",
+        "check_version_literals.py",
+        "check_translatable.py",
+    ],
 )
 def test_guard_passes_on_the_current_tree(script: str) -> None:
     result = subprocess.run(
@@ -164,3 +170,56 @@ class TestVersionLiteralGuard:
         assert not check_version_literals._is_exempt(
             check_version_literals.PACKAGE_ROOT / "services" / "case.py"
         )
+
+
+class TestTranslatableGuard:
+    """NFR-A5 — user-visible strings are externalised from M1."""
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            'label.setText("Runtime ready")',
+            'button.setToolTip("Go to Setup")',
+            'widget.setWindowTitle("Cases")',
+            'field.setPlaceholderText("Case name")',
+            'item.setAccessibleName("Library")',
+        ],
+    )
+    def test_detects_an_inline_literal(self, source: str) -> None:
+        found = check_translatable._violations(ast.parse(source), Path("x.py"))
+        assert found
+
+    def test_detects_an_f_string(self) -> None:
+        # Worse than a literal: it cannot be extracted at all, and a translator
+        # cannot reorder its parts for a right-to-left locale.
+        source = 'label.setText(f"{glyph}  {name}")'
+        assert check_translatable._violations(ast.parse(source), Path("x.py"))
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            'label.setText(self.tr("Runtime ready"))',
+            'label.setText(_("Runtime ready"))',
+            'label.setText(self.tr("{0} {1}").format(a, b))',
+            'label.setText(labels["recent_cases"])',
+            'label.setText(self._strings["hub_heading"].format(name))',
+            "label.setText(computed_value)",
+        ],
+    )
+    def test_accepts_catalogue_and_tr(self, source: str) -> None:
+        assert not check_translatable._violations(ast.parse(source), Path("x.py"))
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            'widget.setObjectName("navRail")',
+            'widget.setProperty("role", "heading")',
+        ],
+    )
+    def test_style_selectors_are_exempt(self, source: str) -> None:
+        # These are style-sheet hooks, not text. Translating them would break the
+        # style sheet in every locale but English.
+        assert not check_translatable._violations(ast.parse(source), Path("x.py"))
+
+    def test_the_catalogue_itself_is_exempt(self) -> None:
+        assert check_translatable.CATALOGUE.name == "strings.py"

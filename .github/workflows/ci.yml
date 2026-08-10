@@ -48,6 +48,9 @@ jobs:
       - name: NFR-M3 — no version or lineage literals in code
         run: uv run python tools/check_version_literals.py
 
+      - name: NFR-A5 — user-visible strings are externalised
+        run: uv run python tools/check_translatable.py
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -66,7 +69,9 @@ jobs:
         run: uv sync --group dev
 
       - name: Test
-        # Includes the §12.2 round-trip gate over the vendored corpus, which is
+        # Qt widget tests render offscreen (set in tests/conftest.py), so the
+        # matrix needs no display server. Includes the §12.5 automated contrast
+        # check and the §12.2 round-trip gate over the vendored corpus, which is
         # why the corpus is committed rather than fetched: CI has no OpenFOAM
         # until M2. The wide sweep over a full tutorial suite is opt-in and runs
         # locally (FOAMWB_TUTORIALS=... pytest -m slow).
