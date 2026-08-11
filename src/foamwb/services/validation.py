@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from foamwb.codes import ErrorCode, Severity
 from foamwb.services.boundary_matrix import BoundaryMatrix, read_matrix
 from foamwb.services.case import Case, Finding
 from foamwb.services.foamdict import Document, ParseError
@@ -69,9 +70,73 @@ def validate_case(case: Case) -> Validation:
             continue
         findings.extend(_check(schema_name=name, source=source))
 
+    findings.extend(_missing_initial_fields(case))
+
     matrix = read_matrix(case)
     findings.extend(matrix.findings)
     return Validation(findings, matrix)
+
+
+#: Solver-block keys that are settings for a field already listed, not fields of
+#: their own. ``pFinal`` tunes the last PISO corrector for ``p``.
+_FINAL_SUFFIX = "Final"
+
+#: Characters that make a solver key a *pattern* rather than a name.
+_PATTERN_CHARS = frozenset('(|)*[]?^$\\"')
+
+
+def _missing_initial_fields(case: Case) -> list[Finding]:
+    """Fields ``fvSolution`` solves for that have no file in ``0`` (E-C08).
+
+    The gap this closes is the one that matters most: deleting ``0/p`` used to
+    produce no finding at all, so the check reported "this case can run" about a
+    case that stops before its first timestep. A check that misses the failure it
+    exists to catch is worse than no check (§7.9 rule 6).
+
+    **Only unambiguous names are checked.** Real solver blocks are full of
+    patterns — ``(U|k|epsilon|omega|f|v2)`` is a catch-all that ``pitzDaily``
+    only half satisfies, and requiring every alternative would report a healthy
+    case as broken. Patterns are skipped, which makes this check modest and
+    never wrong; a false alarm here would teach users to ignore the panel.
+    """
+    source = case.path / "system" / "fvSolution"
+    if not source.is_file():
+        return []
+
+    try:
+        document = Document.parse_bytes(source.read_bytes())
+    except (OSError, ParseError):
+        return []
+
+    directory = next(
+        (case.path / name for name in ("0", "0.orig") if (case.path / name).is_dir()), None
+    )
+    if directory is None:
+        return []
+
+    # A multi-region case keeps a solvers block per region, so the top-level
+    # fvSolution has none at all — `multiRegionHeater` is the case in point, and
+    # `keys` raises rather than returning empty for a path that is not there.
+    if not document.has("solvers"):
+        return []
+
+    findings: list[Finding] = []
+    for key in document.keys("solvers"):
+        if _PATTERN_CHARS & set(key) or key.endswith(_FINAL_SUFFIX):
+            continue
+        if not (directory / key).is_file():
+            findings.append(
+                Finding(
+                    code=ErrorCode.MISSING_INITIAL_FIELD,
+                    severity=Severity.ERROR,
+                    file=Path(directory.name) / key,
+                    detail=(
+                        f"system/fvSolution solves for {key}, but {directory.name}/{key} "
+                        "does not exist. The solver stops before its first timestep."
+                    ),
+                )
+            )
+    return findings
 
 
 def _check(*, schema_name: str, source: Path) -> list[Finding]:

@@ -109,6 +109,15 @@ class ErrorCode:
     MODIFIED_EXTERNALLY = _c(
         "E-C05", "Case modified outside the application", "cases/modified-externally"
     )
+    MISSING_INITIAL_FIELD = _c(
+        "E-C08", "A field the solver solves has no initial condition", "cases/missing-field"
+    )
+    """``fvSolution`` names a field to solve and ``0`` has no file for it.
+
+    The solver stops before its first timestep with "cannot find file". Observed
+    on a real case: ``damBreak`` ships ``0.orig`` and fails exactly this way when
+    it is run without restoring it."""
+
     SLOW_PATH = _c("E-C06", "Case on a slow or network path", "cases/slow-storage")
     VERSION_MISMATCH = _c(
         "E-C07", "Case authored for an unsupported release", "cases/version-mismatch"

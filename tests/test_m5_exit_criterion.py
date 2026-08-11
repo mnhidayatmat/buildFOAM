@@ -212,23 +212,42 @@ class TestTheStopIsWriteNowNotNextWrite:
     stop button that does not work.
     """
 
-    def test_the_final_write_is_off_the_write_interval(self, runtime, tutorials, tmp_path) -> None:
+    def test_the_final_write_is_the_step_the_abort_was_seen(
+        self, runtime, tutorials, tmp_path
+    ) -> None:
+        """Asserted against the solver's own timeIndex, not against arithmetic.
+
+        The first version of this test checked that the final time was *not* a
+        multiple of the write interval. That is true of ``writeNow`` and false of
+        ``nextWrite`` — but only usually: cavity writes every twentieth step, so
+        roughly one run in twenty stops on a boundary by coincidence and the test
+        failed on a correct implementation. A flaky test is worse than none,
+        because it teaches whoever sees it to press rerun.
+
+        The solver prints the exact step it acted on. ``writeNow`` writes at the
+        following step; ``nextWrite`` would write at the next scheduled interval,
+        which is a different and generally much later time.
+        """
+        import re
+
         manager, installation = runtime
-        source = tutorials / "incompressible" / "icoFoam" / "cavity" / "cavity"
-        if not source.is_dir():
-            pytest.skip("cavity not in this tutorial suite")
+        source = _runnable_or_skip(
+            tutorials / "incompressible" / "icoFoam" / "cavity" / "cavity", "cavity"
+        )
 
         case_path = _prepare(source, tmp_path / "case")
-        _stopped_run(manager, installation, case_path, delay=6.0)
+        _stopped_run(manager, installation, case_path)
+
+        log = (case_path / "logs" / "log.solve").read_text(errors="replace")
+        match = re.search(r"USER REQUESTED ABORT \(timeIndex=(\d+)\)", log)
+        assert match, "the solver never acknowledged the stop"
+
+        control = (case_path / "system" / "controlDict").read_text()
+        delta = float(re.search(r"^deltaT\s+(\S+);", control, re.M).group(1))
 
         latest = _latest_time(case_path)
         assert latest is not None
-
-        # cavity writes every 20 steps of deltaT 0.005, i.e. every 0.1 s. A stop
-        # at writeNow lands wherever the solver happened to be; nextWrite would
-        # always land on a multiple of the interval.
-        remainder = round(float(latest) % 0.1, 6)
-        assert remainder not in (0.0, 0.1), (
-            f"final time {latest} sits exactly on the write interval, which is "
-            "what nextWrite would produce"
+        expected = (int(match.group(1)) + 1) * delta
+        assert abs(float(latest) - expected) < delta, (
+            f"wrote at t={latest}, but the abort was seen at step {match.group(1)} (t={expected})"
         )

@@ -521,6 +521,45 @@ def initial_strings() -> dict[str, str]:
     }
 
 
+def verify_strings() -> dict[str, str]:
+    """The setup check (FR-C3, §7.3 step 8's spirit, before the run).
+
+    The wording is careful about what a clean check does and does not mean. It
+    means nothing contradicts itself; it does not mean the case is right. §6.9's
+    whole argument is that a plausible wrong answer is the failure mode that
+    matters, and a green tick that implied correctness would be exactly that.
+    """
+    return {
+        "verify_heading": _("Check setup"),
+        "verify_intro": _(
+            "Looks for the mistakes that stop a case running or make it run as "
+            "something other than what you meant."
+        ),
+        "verify_now": _("Check again"),
+        "verify_no_case": _("Open a case to check it."),
+        "verify_clean": _("Nothing inconsistent found."),
+        "verify_clean_caveat": _(
+            "This checks that the case does not contradict itself. It cannot "
+            "tell you whether the physics is right for your problem — that is "
+            "what Verification is for."
+        ),
+        "verify_blocked": _("{0} would stop this case running."),
+        "verify_warnings": _("{0} worth looking at."),
+        "verify_ready": _("This case can run."),
+        "verify_not_ready": _("This case cannot run yet."),
+        "col_severity": _("Severity"),
+        "col_where": _("Where"),
+        "col_problem": _("Problem"),
+        "col_code": _("Code"),
+        "at_line": _("{0}:{1}"),
+        "sev_fatal": _("blocks the run"),
+        "sev_error": _("blocks the run"),
+        "sev_warning": _("worth checking"),
+        "sev_info": _("note"),
+        "open_the_file": _("Open the file"),
+    }
+
+
 def library_strings() -> dict[str, str]:
     """The content library (§7.8, FR-L1 to FR-L5).
 

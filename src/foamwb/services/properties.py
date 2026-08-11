@@ -23,6 +23,11 @@ from pathlib import Path
 from foamwb.services.foamdict import Document, ParseError
 from foamwb.services.schema import Schema, load_schema
 
+#: Not settings. ``FoamFile`` is the format header every dictionary carries —
+#: showing it as a parameter would put the same four rows of file metadata at the
+#: top of every panel, and none of them is something the user sets.
+NOT_SETTINGS: frozenset[str] = frozenset({"FoamFile"})
+
 __all__ = [
     "STEP_SOURCES",
     "PropertyGroup",
@@ -74,7 +79,7 @@ STEP_SOURCES: dict[str, tuple[tuple[str, str], ...]] = {
         ("system/fvSchemes", "fvSchemes"),
         ("system/fvSolution", "fvSolution"),
     ),
-    "mesh.settings": (("system/blockMeshDict", ""),),
+    "mesh.settings": (("system/blockMeshDict", "blockMeshDict"),),
     "conditions.output": (("system/controlDict", "controlDict"),),
 }
 
@@ -114,7 +119,7 @@ def rows_from_document(
         # paths like ddtSchemes/default. Dropping the call would iterate
         # something else entirely.
         for key in document.keys():  # noqa: SIM118
-            if key in described:
+            if key in described or key.split("/", 1)[0] in NOT_SETTINGS:
                 continue
             rows.append(
                 PropertyRow(

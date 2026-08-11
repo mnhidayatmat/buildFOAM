@@ -62,6 +62,7 @@ from foamwb.ui.views.preprocessor import PreprocessorView
 from foamwb.ui.views.regions import RegionsView
 from foamwb.ui.views.run import RunView
 from foamwb.ui.views.vandv import VandVView
+from foamwb.ui.views.verify import VerifyView
 from foamwb.ui.widgets.property_panel import PropertyPanel
 from foamwb.ui.widgets.workflow_nav import WorkflowNav
 
@@ -214,6 +215,10 @@ class Shell(QMainWindow):
         self._views["initial"] = self._initial
         self._stack.addWidget(self._initial)
 
+        self._verify = VerifyView(self._palette, {**self._strings, **strings.verify_strings()})
+        self._views["verify"] = self._verify
+        self._stack.addWidget(self._verify)
+
         self._post = PostView(self._palette, {**self._strings, **strings.post_strings()})
         self._views["post"] = self._post
         self._stack.addWidget(self._post)
@@ -235,6 +240,7 @@ class Shell(QMainWindow):
         # A patch type decides which boundary conditions are legal, so the
         # matrix has to be re-read rather than left showing the old rules.
         self._regions.patches_changed.connect(self._reload_case)
+        self._verify.file_requested.connect(lambda _p: self.show_view("cases"))
         self._workflow.action_requested.connect(self._on_step_action)
         self._workflow.return_to_mesh.connect(self._on_return_to_mesh)
         self._footer.setup_requested.connect(lambda: self.show_view("setup"))
@@ -268,8 +274,6 @@ class Shell(QMainWindow):
         """Steps that run something rather than opening a page."""
         if step_id in {"mesh.generate", "execute"}:
             self.show_view("run")
-        elif step_id == "verify":
-            self.show_view("cases")
 
     def _on_return_to_mesh(self) -> None:
         """scFLOW's *Return to Prepare Parts*.
@@ -561,6 +565,7 @@ class Shell(QMainWindow):
         )
         self._post.set_context(self._session, case.path)
         self._regions.set_case(case.path)
+        self._verify.set_case(case.path)
         self._initial.set_case(case.path)
         # New cases land beside the one just opened, which is where a user who
         # keeps their work in one folder expects to find them.
@@ -594,6 +599,10 @@ class Shell(QMainWindow):
     @property
     def regions(self) -> RegionsView:
         return self._regions
+
+    @property
+    def verify(self) -> VerifyView:
+        return self._verify
 
     @property
     def initial(self) -> InitialConditionsView:

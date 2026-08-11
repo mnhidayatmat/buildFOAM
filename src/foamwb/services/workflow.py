@@ -150,7 +150,7 @@ STEPS: tuple[Step, ...] = (
     Step("conditions.boundary", parent="conditions", view="cases"),
     Step("conditions.control", parent="conditions", view="cases"),
     Step("conditions.output", parent="conditions", view="cases"),
-    Step("verify", kind=StepKind.ACTION, required=True),
+    Step("verify", view="verify", required=True),
     Step("execute", view="run", needs_mesh=True, required=True),
     Step("results", view="post", needs_mesh=True),
     Step("vandv", view="vv", needs_mesh=True),

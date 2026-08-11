@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "file": "system/blockMeshDict",
+  "title": "Mesh settings",
+  "_comment": [
+    "Deliberately small. A blockMeshDict is mostly *structure* — a vertex list,",
+    "a block topology, a boundary face list — and structure is not something a",
+    "property grid can edit honestly: a form offering 'vertex 3' as a row would",
+    "invite edits that leave the topology inconsistent, and the file would then",
+    "fail inside blockMesh with a message about a face ordering rather than",
+    "about what the user actually did.",
+    "",
+    "So only the entries that are genuinely scalar settings are described here.",
+    "Everything else appears in the property panel as an unknown entry — visible,",
+    "marked, and edited in the Text tab where the whole file is in view. That is",
+    "the same rule the rest of the preprocessor follows (FR-P7).",
+    "",
+    "'convertToMeters' is the older spelling of 'scale' and is still present",
+    "across the tutorial suite, so both are described rather than only the",
+    "current one."
+  ],
+  "fields": [
+    {
+      "key": "scale",
+      "type": "scalar",
+      "label": "Scale",
+      "unit": "m",
+      "help": "Multiplies every vertex coordinate. 0.001 means the vertices are written in millimetres.",
+      "exclusive_minimum": true,
+      "minimum": 0
+    },
+    {
+      "key": "convertToMeters",
+      "type": "scalar",
+      "label": "Scale (older spelling)",
+      "unit": "m",
+      "help": "The pre-v1706 name for scale. If both are present OpenFOAM uses scale.",
+      "exclusive_minimum": true,
+      "minimum": 0
+    },
+    {
+      "key": "mergePatchPairs",
+      "type": "text",
+      "label": "Merge patch pairs",
+      "help": "Patch pairs to be merged into internal faces. Empty in most cases."
+    }
+  ]
+}
