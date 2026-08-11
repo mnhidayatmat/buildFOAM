@@ -80,6 +80,9 @@ class Strategy(StrEnum):
     DOCKER = "docker"
     """FR-R10's fallback: Intel hardware, or Homebrew unavailable or refused."""
 
+    WSL = "wsl"
+    """A dedicated WSL2 distribution on Windows (DEC-12, §3.2)."""
+
     UNAVAILABLE = "unavailable"
     """Nothing can be done without user action — no network, no Docker, no
     Homebrew and no way to install one."""
@@ -102,7 +105,11 @@ class ProvisionStep:
     (1.4 GB download)" from the action and the numbers, in the user's language.
     """
 
-    action: ProvisionAction
+    action: ProvisionAction | str
+    """Widened to accept :class:`~foamwb.services.runtime.wslprovision.WslAction`
+    too. Both are ``StrEnum``, so a step compares and serialises identically
+    whichever platform produced it — and a Windows-only action stays out of the
+    macOS enumeration, where it could otherwise be planned by mistake."""
     target: str = ""
     download_bytes: int = 0
     disk_bytes: int = 0
