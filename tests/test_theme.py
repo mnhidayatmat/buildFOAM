@@ -16,7 +16,9 @@ adjust a colour cannot push it below legibility without the build saying so.
 
 from __future__ import annotations
 
+import ast
 import re
+from pathlib import Path
 
 import pytest
 
@@ -208,6 +210,9 @@ _NEEDS_NO_RULE = {
     "QTableWidgetItem",
     "QActionGroup",
     "QAction",
+    # Not a widget: it coordinates buttons that are themselves styled, and
+    # paints nothing of its own.
+    "QButtonGroup",
     "QSizePolicy",
     "QKeySequence",
     "QShortcut",

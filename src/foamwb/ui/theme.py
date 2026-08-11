@@ -365,6 +365,7 @@ QPushButton:default:disabled {{
 QLineEdit,
 QPlainTextEdit,
 QTextEdit,
+QTextBrowser,
 QSpinBox,
 QDoubleSpinBox {{
     background-color: {palette.bg};
@@ -379,6 +380,7 @@ QDoubleSpinBox {{
 QLineEdit:disabled,
 QPlainTextEdit:disabled,
 QTextEdit:disabled,
+QTextBrowser:disabled,
 QSpinBox:disabled,
 QDoubleSpinBox:disabled {{
     color: {palette.text_muted};

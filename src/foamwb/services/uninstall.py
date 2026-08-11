@@ -129,6 +129,18 @@ class UninstallPlan:
         """Whether an export must happen before the runtime can go (FR-R9)."""
         return bool(self.blocked) and not self.cases_exported
 
+    def record_export(self, result) -> bool:
+        """Accept a completed export as satisfying the block (FR-R12).
+
+        Only a *verified* export counts. ``export_cases`` compares every file's
+        digest before and after, and a copy that raised nothing while truncating
+        a field file would otherwise unlock the unregister that destroys the
+        original — which is the one moment there is no second chance.
+        """
+        if getattr(result, "succeeded", False):
+            self.cases_exported = True
+        return self.cases_exported
+
     @property
     def freed_bytes(self) -> int:
         return sum(i.size_bytes for i in self.removed)
