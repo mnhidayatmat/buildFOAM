@@ -157,6 +157,43 @@ def run_strings() -> dict[str, str]:
     }
 
 
+def preprocessor_strings() -> dict[str, str]:
+    """The Preprocessor view (§7.4)."""
+    return {
+        "case_files": _("Case files"),
+        "form_tab": _("Form"),
+        "form_tab_unavailable": _("Form (not available)"),
+        "text_tab": _("Text"),
+        "bc_tab": _("Boundary conditions"),
+        "raw_text": _("Dictionary text"),
+        "validation": _("Validation"),
+        "no_case_open_hint": _("Open a case to edit its dictionaries."),
+        "no_findings": _("No problems found."),
+        "findings_summary": _("{0} to look at, {1} of which will stop a run."),
+        "finding": _("{0}  {1} — {2}"),
+        "finding_at_line": _("{0}, line {1}"),
+        # Text editor
+        "save": _("Save"),
+        "revert": _("Revert"),
+        "no_changes": _("No changes."),
+        "unsaved_changes": _("Unsaved changes."),
+        "save_blocked": _("Not saved — line {0}: {1}"),
+        "not_in_form": _("Also in this file, editable in the Text tab: {0}"),
+        # Boundary-condition matrix
+        "bc_matrix": _("Boundary conditions by patch and field"),
+        "mesh_needed": _("This case has no mesh yet. Generate one to see its patches."),
+        "matrix_summary": _("{0} patches x {1} fields, {2} without a condition."),
+        "patch_header": _("{0}  ({1})"),
+        "cell_missing": _("not set"),
+        "cell_missing_tip": _("{0} has no entry in {1}, so the solver has nothing to apply there."),
+        "cell_default_tip": _("Supplied by the pattern {0}, not written for this patch."),
+        "cell_accessible": _("{0}, {1}: {2}"),
+        "apply_to_all": _("Apply to all"),
+        "for_field": _("patches, for"),
+        "apply": _("Apply"),
+    }
+
+
 def runtime_banner_message(state: str, code: str | None) -> str:
     """Banner text for a non-ready runtime (§7.2).
 

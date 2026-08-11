@@ -475,6 +475,48 @@ class CaseService:
         """Adopt the case as it now is on disk — FR-C4's "Keep mine"."""
         self.write_metadata(case)
 
+    # -- dictionary editing ------------------------------------------------
+
+    def dictionary_files(self, case: Case) -> list[Path]:
+        """Every file the preprocessor should list, in tree order (§7.4).
+
+        The *real* tree with real filenames, not a curated view: a user who is
+        told their case contains ``system/controlDict`` must be able to find that
+        file on disk with the same name, or the application has taught them
+        something false about their own case (D4).
+
+        Written results and our own metadata are excluded — they are output, not
+        the case definition, and a tree that grew a directory every write
+        interval would be unusable during a run.
+        """
+        found: list[Path] = []
+        for directory in DEFINITION_DIRS:
+            root = case.path / directory
+            if not root.is_dir():
+                continue
+            for path in sorted(root.rglob("*")):
+                if not path.is_file() or path.is_symlink():
+                    continue
+                if TRANSIENT_NAMES & set(path.relative_to(case.path).parts):
+                    continue
+                found.append(path)
+        return found
+
+    def write_dictionary(self, case: Case, path: Path, data: bytes) -> None:
+        """Write a dictionary back, atomically (NFR-R2).
+
+        Temp file then rename, so a crash mid-write never truncates a case file —
+        the file is either the old one or the new one. The tree hash is refreshed
+        afterwards because this is an application-initiated change: leaving it
+        stale would classify the case as modified-outside on the next open and
+        offer to undo the edit the user just made (FR-C4).
+        """
+        _write_atomically(path, data)
+        case.tree_hash = self.tree_hash(case.path)
+        if case.metadata is not None:
+            self.write_metadata(case)
+        log_event(_log, Event.CASE_WRITE, case=str(case.path), file=path.name)
+
     # -- monitoring --------------------------------------------------------
 
     def solved_fields(self, case: Case) -> tuple[str, ...]:

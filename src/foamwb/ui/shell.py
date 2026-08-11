@@ -39,6 +39,7 @@ from foamwb.ui.navrail import NAV_ITEMS, NavRail
 from foamwb.ui.theme import Palette
 from foamwb.ui.views.hub import HubView
 from foamwb.ui.views.placeholder import PlaceholderView
+from foamwb.ui.views.preprocessor import PreprocessorView
 from foamwb.ui.views.run import RunView
 
 __all__ = ["Shell"]
@@ -123,6 +124,12 @@ class Shell(QMainWindow):
         self._run = RunView(self._palette, {**self._strings, **strings.run_strings()})
         self._views["run"] = self._run
         self._stack.addWidget(self._run)
+
+        self._preprocessor = PreprocessorView(
+            self._palette, {**self._strings, **strings.preprocessor_strings()}
+        )
+        self._views["cases"] = self._preprocessor
+        self._stack.addWidget(self._preprocessor)
 
         for item in NAV_ITEMS:
             if item.key in self._views:
@@ -299,6 +306,7 @@ class Shell(QMainWindow):
             return
 
         self.set_active_case(case.name)
+        self._preprocessor.set_case(case)
         if self._session is not None:
             self._run.set_context(self._session, case.path, plan)
             self.show_view("run")
@@ -331,6 +339,10 @@ class Shell(QMainWindow):
     @property
     def run_view(self) -> RunView:
         return self._run
+
+    @property
+    def preprocessor(self) -> PreprocessorView:
+        return self._preprocessor
 
     def closeEvent(self, event) -> None:
         """Reap a running solver before the window goes away (FR-S10, NFR-R6).

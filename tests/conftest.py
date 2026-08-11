@@ -75,6 +75,7 @@ QT_AVAILABLE = _qt_is_usable()
 _UI_TEST_MODULES = (
     "test_app.py",
     "test_probe.py",
+    "test_preprocessor_view.py",
     "test_run_view.py",
     "test_shell.py",
     "test_theme.py",

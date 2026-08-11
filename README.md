@@ -4,7 +4,7 @@
 
 > BuildFOAM is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com, and owner of the OPENFOAM® and OpenCFD® trade marks.
 
-**Status: M2 complete.** `uv run buildfoam` opens a case, builds its run plan, executes it with the solver log streaming live, and plots residuals as they converge. Both numerical gates pass: §12.2's round-trip corpus and §12.3's golden-case regression. Next is the preprocessor — form editors and the boundary-condition matrix (M4). The specification is [`docs/PRD-v1.0.md`](docs/PRD-v1.0.md).
+**Status: M4 in progress.** `uv run buildfoam` opens a case, edits its dictionaries through schema-driven forms or a raw-text tab, shows the boundary-condition matrix with live validation, builds a run plan, executes it with the solver log streaming, and plots residuals as they converge. Both numerical gates pass: §12.2's round-trip corpus and §12.3's golden-case regression. Still to come in M4: meshing utilities (FR-P5) and `fvSchemes`/`fvSolution` schemas. The specification is [`docs/PRD-v1.0.md`](docs/PRD-v1.0.md).
 
 ---
 
@@ -26,6 +26,10 @@ src/foamwb/            Application. The import package is deliberately not named
     foamdict/lexer.py    Tokeniser. Byte-conserving by construction.
     foamdict/document.py Tolerant parser + round-trip-faithful editing API
     run/plan.py          RunPlan / Stage — the §4.3 abstraction
+    boundary.py          Patch names and types from polyMesh (FR-P4)
+    boundary_matrix.py   Patch x field matrix and its findings (FR-P4, E-C03/04)
+    schema.py            The §5.4 declarative form layer
+    validation.py        Whole-case findings (FR-C3)
     run/controller.py    Executes a plan, streams output (FR-S1, FR-S5)
                          and build_plan() composes one from a case
     runtime/manifest.py  §3.4 version policy, read from data/
@@ -41,7 +45,9 @@ src/foamwb/            Application. The import package is deliberately not named
     probe.py             Off-thread runtime detection (NFR-P1)
     run_worker.py        Runs a plan off the GUI thread, batching output
     views/run.py         The Run view (§7.5)
-    widgets/             Stage strip, log pane, residual plot
+    views/preprocessor.py  The Preprocessor view (§7.4)
+    widgets/             Stage strip, log pane, residual plot,
+                         form editor, text editor, BC matrix
 tools/                 The four CI guards + the corpus vendoring tool
 tests/corpus/          368 dictionaries from 23 tutorial cases, pinned to v2512
 tests/                 pytest suite, including tests of the guards themselves
