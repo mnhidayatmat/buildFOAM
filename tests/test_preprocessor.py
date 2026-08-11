@@ -357,3 +357,72 @@ class TestValidation:
         opened = CaseService().open(case)
         assert opened.application == "icoFoam"
         assert validate_case(opened).blocking
+
+
+class TestNestedSchemas:
+    """fvSchemes and fvSolution keep their settings one level down (§5.4)."""
+
+    def test_both_schemas_are_bundled(self) -> None:
+        assert {"fvSchemes", "fvSolution"} <= set(available_schemas())
+
+    def test_field_keys_are_paths(self) -> None:
+        schema = load_schema("fvSchemes")
+        assert "ddtSchemes/default" in schema.keys
+
+    def test_covered_groups_are_the_first_segments(self) -> None:
+        # Without this, every such dictionary would report its own groups as
+        # unknown, because a top-level key is never equal to a path.
+        schema = load_schema("fvSolution")
+        assert schema.covered_groups == {"SIMPLE", "PISO", "PIMPLE"}
+
+    @pytest.mark.parametrize("name", ["fvSchemes", "fvSolution"])
+    def test_every_corpus_file_validates_clean(self, name: str) -> None:
+        # The same statement made for controlDict: the schema agrees with the
+        # dictionaries OpenFOAM's own authors wrote.
+        from corpus_loader import corpus_files
+
+        schema = load_schema(name)
+        checked = 0
+        for corpus_file in corpus_files():
+            if not corpus_file.relative.endswith(f"system/{name}"):
+                continue
+            checked += 1
+            document = Document.parse(corpus_file.text)
+            assert validate_document(schema, document, corpus_file.path) == [], corpus_file.relative
+        assert checked > 15
+
+    def test_no_algorithm_field_is_required(self) -> None:
+        # A case has SIMPLE or PIMPLE, never both. A required key would report a
+        # steady case as missing transient settings it has no use for.
+        schema = load_schema("fvSolution")
+        assert not any(field.required for field in schema.fields)
+
+    def test_a_group_reached_into_is_not_called_unknown(self) -> None:
+        # divSchemes has an editable default and inedible per-operator entries.
+        # Calling the whole group unknown would be as misleading as silence.
+        schema = load_schema("fvSchemes")
+        document = Document.parse("divSchemes { default none; div(phi,U) Gauss linear; }\n")
+        assert "divSchemes" not in schema.unknown_keys(document)
+        assert "divSchemes" in schema.partial_groups(document)
+
+    def test_a_fully_covered_group_is_not_reported_as_partial(self) -> None:
+        schema = load_schema("fvSchemes")
+        document = Document.parse("ddtSchemes { default Euler; }\n")
+        assert schema.partial_groups(document) == []
+
+    def test_a_multi_word_scheme_is_accepted(self) -> None:
+        # A scheme is a phrase whose tail can name an operand, so the set is
+        # open and a word-only check would reject every real value.
+        schema = load_schema("fvSchemes")
+        field = schema.field("laplacianSchemes/default")
+        assert field.check("Gauss linear corrected") is None
+        assert field.check("bounded Gauss linearUpwind grad(U)") is None
+        assert field.check("   ") is not None
+
+    def test_a_nested_value_writes_one_line(self) -> None:
+        # FR-P7 through a path rather than a top-level key.
+        source = "ddtSchemes\n{\n    default         steadyState;\n}\nother 1;\n"
+        document = Document.parse(source)
+        document.set("ddtSchemes/default", "Euler")
+        before, after = source.splitlines(), document.render().splitlines()
+        assert sum(1 for a, b in zip(before, after, strict=True) if a != b) == 1

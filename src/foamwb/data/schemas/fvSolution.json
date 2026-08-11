@@ -1,0 +1,107 @@
+{
+  "schema": 1,
+  "file": "system/fvSolution",
+  "title": "Solution controls",
+  "_comment": [
+    "The algorithm blocks are form-editable; `solvers` and `relaxationFactors`",
+    "are not, and that is deliberate.",
+    "",
+    "`solvers` is keyed by equation — p, U, k, alpha.water — so its shape is the",
+    "case's, not something a schema can name in advance. Same for",
+    "`relaxationFactors`. Both are preserved and edited in the text tab.",
+    "",
+    "Which algorithm block a case has depends on its solver: SIMPLE for steady,",
+    "PISO and PIMPLE for transient. No field here is required, so the form shows",
+    "the block the case actually has and stays silent about the others — a",
+    "required key would report a steady case as missing PIMPLE settings it has",
+    "no use for.",
+    "",
+    "Keys were taken from what the corpus contains, in frequency order."
+  ],
+  "fields": [
+    {
+      "key": "SIMPLE/nNonOrthogonalCorrectors",
+      "type": "integer",
+      "minimum": 0,
+      "label": "SIMPLE: non-orthogonal correctors",
+      "help": "Extra pressure solves per iteration. Raise it on a mesh with high non-orthogonality."
+    },
+    {
+      "key": "SIMPLE/consistent",
+      "type": "bool",
+      "label": "SIMPLE: consistent (SIMPLEC)",
+      "help": "Allows much larger relaxation factors, and usually converges in fewer iterations."
+    },
+    {
+      "key": "SIMPLE/pRefCell",
+      "type": "integer",
+      "minimum": 0,
+      "label": "SIMPLE: reference cell",
+      "help": "Pins pressure in a closed domain, where otherwise only its gradient is determined."
+    },
+    {
+      "key": "SIMPLE/pRefValue",
+      "type": "scalar",
+      "label": "SIMPLE: reference pressure"
+    },
+    {
+      "key": "PISO/nCorrectors",
+      "type": "integer",
+      "minimum": 1,
+      "label": "PISO: pressure correctors"
+    },
+    {
+      "key": "PISO/nNonOrthogonalCorrectors",
+      "type": "integer",
+      "minimum": 0,
+      "label": "PISO: non-orthogonal correctors"
+    },
+    {
+      "key": "PISO/pRefCell",
+      "type": "integer",
+      "minimum": 0,
+      "label": "PISO: reference cell"
+    },
+    {
+      "key": "PISO/pRefValue",
+      "type": "scalar",
+      "label": "PISO: reference pressure"
+    },
+    {
+      "key": "PIMPLE/nOuterCorrectors",
+      "type": "integer",
+      "minimum": 1,
+      "label": "PIMPLE: outer correctors",
+      "help": "1 makes PIMPLE behave as PISO. Above 1 it iterates within each time step, which allows a larger step."
+    },
+    {
+      "key": "PIMPLE/nCorrectors",
+      "type": "integer",
+      "minimum": 1,
+      "label": "PIMPLE: pressure correctors"
+    },
+    {
+      "key": "PIMPLE/nNonOrthogonalCorrectors",
+      "type": "integer",
+      "minimum": 0,
+      "label": "PIMPLE: non-orthogonal correctors"
+    },
+    {
+      "key": "PIMPLE/momentumPredictor",
+      "type": "bool",
+      "label": "PIMPLE: momentum predictor",
+      "help": "Usually off for low-Reynolds or strongly buoyant flows."
+    },
+    {
+      "key": "PIMPLE/pRefCell",
+      "type": "integer",
+      "minimum": 0,
+      "label": "PIMPLE: reference cell"
+    },
+    {
+      "key": "PIMPLE/pRefValue",
+      "type": "scalar",
+      "label": "PIMPLE: reference pressure"
+    }
+  ]
+}

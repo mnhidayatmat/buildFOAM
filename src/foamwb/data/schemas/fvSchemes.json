@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "file": "system/fvSchemes",
+  "title": "Discretisation schemes",
+  "_comment": [
+    "Only the per-group `default` entries are form-editable, and that is the",
+    "honest boundary rather than a shortcut.",
+    "",
+    "A group's other entries name the operand in the key itself —",
+    "`div(phi,U)`, `grad(p)` — so the set of keys depends on the equations the",
+    "case solves and cannot be enumerated in advance. `divSchemes/default` is",
+    "`none` in 16 of the 23 corpus cases precisely because those cases specify",
+    "every divergence term explicitly. Those entries are preserved untouched and",
+    "edited in the text tab (§5.4, FR-P6).",
+    "",
+    "Values are free text, not enums. A scheme is a phrase whose tail can name",
+    "an operand — `bounded Gauss linearUpwind grad(U)` — so the set is open. A",
+    "dropdown here would be a list that is wrong for every interesting case."
+  ],
+  "fields": [
+    {
+      "key": "ddtSchemes/default",
+      "type": "text",
+      "label": "Time derivative",
+      "help": "steadyState for a steady run; Euler or backward for a transient one."
+    },
+    {
+      "key": "gradSchemes/default",
+      "type": "text",
+      "label": "Gradient",
+      "help": "Usually 'Gauss linear'. 'cellLimited' variants help on poor meshes."
+    },
+    {
+      "key": "divSchemes/default",
+      "type": "text",
+      "label": "Divergence",
+      "help": "Often 'none', which requires every divergence term to be named explicitly below it in the text tab."
+    },
+    {
+      "key": "laplacianSchemes/default",
+      "type": "text",
+      "label": "Laplacian",
+      "help": "'Gauss linear corrected' is the usual choice; the last word is the non-orthogonal correction."
+    },
+    {
+      "key": "interpolationSchemes/default",
+      "type": "text",
+      "label": "Interpolation",
+      "help": "Almost always 'linear'."
+    },
+    {
+      "key": "snGradSchemes/default",
+      "type": "text",
+      "label": "Surface-normal gradient",
+      "help": "'corrected' on a non-orthogonal mesh, 'orthogonal' only when the mesh truly is."
+    },
+    {
+      "key": "wallDist/method",
+      "type": "text",
+      "label": "Wall-distance method",
+      "help": "Needed by turbulence models that use distance to the wall."
+    }
+  ]
+}

@@ -23,7 +23,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-__all__ = ["DARK", "LIGHT", "Palette", "contrast_ratio", "status_glyph", "stylesheet"]
+__all__ = [
+    "DARK",
+    "LIGHT",
+    "Palette",
+    "contrast_ratio",
+    "status_glyph",
+    "stylesheet",
+    "theme_glyph",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +132,25 @@ def status_glyph(state: str) -> str:
     return _STATUS_GLYPHS.get(state, "○")
 
 
+#: Theme choice → glyph, keyed by :class:`~foamwb.services.settings.ThemeChoice`
+#: *values* rather than the enum itself, so this module keeps its promise of
+#: depending on nothing (the contrast tests import it without a service layer).
+#:
+#: Shapes again, not colours: the theme control sits in the footer beside the
+#: runtime indicator, and the two must stay distinguishable in a greyscale
+#: screenshot for the same reason (NFR-A2).
+_THEME_GLYPHS = {
+    "light": "☀",
+    "dark": "☾",
+    "system": "◑",
+}
+
+
+def theme_glyph(choice: str) -> str:
+    """Glyph for a theme choice. Never raises, for the reason above."""
+    return _THEME_GLYPHS.get(choice, "◑")
+
+
 def _channel(value: float) -> float:
     """sRGB channel → linear, per the WCAG relative-luminance definition."""
     return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
@@ -222,6 +249,19 @@ QLabel[role="muted"] {{
 
 #runtimeIndicator:hover {{
     background-color: {palette.surface_alt};
+}}
+
+#themeSelector {{
+    background-color: transparent;
+    border: none;
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: {palette.text_muted};
+}}
+
+#themeSelector:hover {{
+    background-color: {palette.surface_alt};
+    color: {palette.text};
 }}
 
 /* -- hub ----------------------------------------------------------------- */

@@ -177,12 +177,22 @@ class FormEditor(QWidget):
         return line
 
     def _show_unknown_keys(self, schema: Schema, document: Document) -> None:
-        unknown = schema.unknown_keys(document)
-        if not unknown:
-            self._unknown.setVisible(False)
-            return
-        self._unknown.setText(self._labels["not_in_form"].format(", ".join(sorted(unknown))))
-        self._unknown.setVisible(True)
+        """Say what the form does not reach, and how (§5.4, FR-P6).
+
+        Two different facts, so two different sentences. An unknown key is
+        entirely in the text tab. A *partly* covered group has some settings here
+        and the rest there — ``divSchemes`` shows its default while its
+        per-operator entries stay in the text — and conflating the two would tell
+        the user to look in the wrong place.
+        """
+        lines: list[str] = []
+        if unknown := schema.unknown_keys(document):
+            lines.append(self._labels["not_in_form"].format(", ".join(sorted(unknown))))
+        if partial := schema.partial_groups(document):
+            lines.append(self._labels["partly_in_form"].format(", ".join(partial)))
+
+        self._unknown.setText("\n".join(lines))
+        self._unknown.setVisible(bool(lines))
 
     # -- editing -----------------------------------------------------------
 

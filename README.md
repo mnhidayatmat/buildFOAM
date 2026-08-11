@@ -4,7 +4,7 @@
 
 > BuildFOAM is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com, and owner of the OPENFOAM® and OpenCFD® trade marks.
 
-**Status: M4's exit criterion is met.** `uv run buildfoam` opens a case, edits its dictionaries through schema-driven forms or a raw-text tab, runs the meshing utilities, shows the boundary-condition matrix with live validation, builds a run plan, executes it with the solver log streaming, and plots residuals as they converge. Three gates pass: §12.2's round-trip corpus, §12.3's golden-case regression, and §11's *"every bundled tutorial can be opened, edited via a form, saved, and still runs"*. Still open in M4: `fvSchemes`/`fvSolution` schemas. The specification is [`docs/PRD-v1.0.md`](docs/PRD-v1.0.md).
+**Status: M4's exit criterion is met.** `uv run buildfoam` opens a case, edits its dictionaries through schema-driven forms or a raw-text tab, runs the meshing utilities, shows the boundary-condition matrix with live validation, builds a run plan, executes it with the solver log streaming, and plots residuals as they converge. Three gates pass: §12.2's round-trip corpus, §12.3's golden-case regression, and §11's *"every bundled tutorial can be opened, edited via a form, saved, and still runs"*. M4 is complete. The specification is [`docs/PRD-v1.0.md`](docs/PRD-v1.0.md).
 
 ---
 

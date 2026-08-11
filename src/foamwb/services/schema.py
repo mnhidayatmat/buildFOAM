@@ -29,7 +29,7 @@ from typing import Any
 
 from foamwb.codes import ErrorCode, Severity
 from foamwb.services.case import Finding
-from foamwb.services.foamdict import Document
+from foamwb.services.foamdict import Document, PathError
 
 __all__ = ["Field", "FieldKind", "Schema", "load_schema", "validate_document"]
 
@@ -47,7 +47,16 @@ class FieldKind(StrEnum):
     """What a field holds, and therefore how it is edited and checked."""
 
     WORD = "word"
-    """A bare identifier — a solver name, a scheme."""
+    """A bare identifier — a solver name, a boundary-condition type."""
+
+    TEXT = "text"
+    """A free value that may contain spaces.
+
+    Needed because a discretisation scheme is a *phrase*: ``Gauss linear
+    corrected``, ``bounded Gauss linearUpwind grad(U)``. Rejecting spaces here —
+    as :data:`WORD` does — would make every fvSchemes entry unwritable, and
+    enumerating the combinations is not possible: the operand appears in the
+    value, so the set is open."""
 
     ENUM = "enum"
     """One of a fixed set. Rendered as a list, so an invalid value is unreachable
@@ -128,6 +137,10 @@ class Field:
             case FieldKind.WORD:
                 if any(character.isspace() for character in value):
                     return "must be a single word"
+            case FieldKind.TEXT:
+                # Non-empty is the only universal rule; anything more would be
+                # guessing at a grammar OpenFOAM itself keeps open.
+                pass
         return None
 
     def _check_range(self, number: float) -> str | None:
@@ -157,16 +170,53 @@ class Schema:
     def keys(self) -> tuple[str, ...]:
         return tuple(f.key for f in self.fields)
 
+    @property
+    def covered_groups(self) -> frozenset[str]:
+        """Top-level names the schema reaches into.
+
+        A field key may be a path — ``ddtSchemes/default``, ``SIMPLE/nCorrectors``
+        — because fvSchemes and fvSolution keep their settings one level down.
+        The group is what a *top-level* key must be compared against, or every
+        such dictionary would report its own groups as unknown.
+        """
+        return frozenset(key.split("/", 1)[0] for key in self.keys)
+
     def unknown_keys(self, document: Document) -> list[str]:
-        """Top-level keys the form cannot edit (§5.4, FR-P6).
+        """Top-level keys the form does not reach (§5.4, FR-P6).
 
         Surfaced rather than hidden: the user should be able to see that the raw
         tab holds something the form does not, instead of discovering it when an
         edit they expected to make is not offered.
+
+        A group the schema reaches *into* is not listed, even though the form
+        cannot edit all of it. ``divSchemes`` is the case in point: its
+        ``default`` is editable while its per-operator entries are not, and
+        calling the whole group unknown would be as misleading as saying nothing.
         """
-        known = set(self.keys) | {"FoamFile"}
+        known = self.covered_groups | {"FoamFile"}
         present = document.keys()  # a Document method, not a mapping
         return [key for key in present if key not in known]
+
+    def partial_groups(self, document: Document) -> list[str]:
+        """Groups the form reaches into but does not fully cover.
+
+        Named separately from :meth:`unknown_keys` because the advice differs:
+        an unknown key is entirely in the text tab, while a partial group has
+        some settings here and the rest there.
+        """
+        partial = []
+        for group in sorted(self.covered_groups):
+            node = document.find(group)
+            if node is None:
+                continue
+            covered = {key.split("/", 1)[1] for key in self.keys if key.startswith(f"{group}/")}
+            try:
+                present = set(document.keys(group))
+            except PathError:  # pragma: no cover - find() already returned a node
+                continue
+            if present - covered:
+                partial.append(group)
+        return partial
 
 
 def _parse_field(raw: dict[str, Any]) -> Field:

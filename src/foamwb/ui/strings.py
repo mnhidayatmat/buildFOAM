@@ -200,6 +200,7 @@ def preprocessor_strings() -> dict[str, str]:
         "unsaved_changes": _("Unsaved changes."),
         "save_blocked": _("Not saved — line {0}: {1}"),
         "not_in_form": _("Also in this file, editable in the Text tab: {0}"),
+        "partly_in_form": _("These have further settings in the Text tab: {0}"),
         # Boundary-condition matrix
         "bc_matrix": _("Boundary conditions by patch and field"),
         "mesh_needed": _("This case has no mesh yet. Generate one to see its patches."),
