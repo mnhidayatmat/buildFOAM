@@ -56,6 +56,9 @@ Issues = "https://github.com/mnhidayatmat/buildFOAM/issues"
 
 [dependency-groups]
 dev = [
+  # M8: the frozen build. A build tool, deliberately not a runtime
+  # dependency — it must not appear in the SBOM of what users receive.
+  "pyinstaller>=6.10",
   "pytest>=8.3",
   "pytest-cov>=5.0",
   "pytest-qt>=4.4",
