@@ -231,6 +231,17 @@ class Document:
 
         yield from walk(self._root, "")
 
+    def node_text(self, node: Node) -> str:
+        """Source text of any node, opaque regions included.
+
+        The way to read a construct the structural parser deliberately does not
+        model: a caller that understands one specific shape — a counted list of
+        patch dictionaries, say — can take its text and parse that.
+        """
+        if node.body_start is None or node.body_end is None:
+            return ""
+        return "".join(t.text for t in self._tokens[node.body_start : node.body_end])
+
     def value_spans_lines(self, node: Node) -> bool:
         """Whether an entry's value occupies more than one line."""
         assert node.value_start is not None and node.value_end is not None
@@ -322,6 +333,10 @@ def _split_path(path: str) -> list[str]:
     return [part for part in path.split("/") if part]
 
 
+def _is_count(token: Token) -> bool:
+    return token.kind is TokenKind.WORD and token.text.isdigit()
+
+
 def _decode_keyword(token: Token) -> str:
     if token.kind is TokenKind.STRING:
         return token.text[1:-1]
@@ -409,6 +424,27 @@ class _Parser:
             if inside_braces and not after_directive:
                 raise self._error("Unexpected '{' — no keyword before it", token)
             return self._parse_opaque_group(TokenKind.LBRACE, TokenKind.RBRACE)
+
+        if _is_count(token) and self._next_significant_is(TokenKind.LPAREN):
+            # OpenFOAM's counted-list form: a bare integer, then a parenthesised
+            # list, with no terminating ';'.
+            #
+            #     3
+            #     (
+            #         movingWall { type wall; nFaces 20; }
+            #         ...
+            #     )
+            #
+            # Every polyMesh file is written this way, including
+            # constant/polyMesh/boundary — which FR-P4's patch/field matrix is
+            # built from, so refusing it would make the boundary editor
+            # impossible on a real meshed case.
+            #
+            # An integer is not a legal keyword, which is what makes the rule
+            # unambiguous: `blocks ( ... );` is an ordinary entry with a real
+            # keyword and a terminator, and is unaffected.
+            self._i += 1  # consume the count
+            return self._parse_opaque_group(TokenKind.LPAREN, TokenKind.RPAREN)
 
         if token.kind is TokenKind.LPAREN:
             # A bare top-level list. Several tutorials ship these: a FoamFile
@@ -563,6 +599,13 @@ class _Parser:
             self._i += 1
 
         return Node(kind=NodeKind.OPAQUE, body_start=start, body_end=self._i)
+
+    def _next_significant_is(self, kind: TokenKind) -> bool:
+        """Whether the next non-trivia token after the current one has this kind."""
+        index = self._i + 1
+        while index < len(self._tokens) and self._tokens[index].is_trivia:
+            index += 1
+        return index < len(self._tokens) and self._tokens[index].kind is kind
 
     def _parse_macro_inclusion(self) -> Node:
         """Consume a ``$variable`` used where an entry would be.

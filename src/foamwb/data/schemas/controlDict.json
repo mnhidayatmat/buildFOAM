@@ -1,0 +1,166 @@
+{
+  "schema": 1,
+  "file": "system/controlDict",
+  "title": "Run control",
+  "_comment": [
+    "Declarative field definitions for the controlDict form editor (§5.4).",
+    "Adding support for a new OpenFOAM version is predominantly a data change,",
+    "not a code change — which only holds if nothing here leaks into Python.",
+    "",
+    "Enum values are taken from what the tutorial corpus actually contains, not",
+    "from the User Guide. 'adjustable' is the case in point: PRD §5.4's example",
+    "lists 'adjustableRunTime', but real files overwhelmingly use the shorter",
+    "alias, and a schema that rejected it would flag valid tutorials as broken.",
+    "",
+    "Any key present in a file but absent from here is preserved untouched and",
+    "shown in the raw-text tab (FR-P6, §5.4). This list is what the form can",
+    "edit, never what a file is allowed to contain."
+  ],
+  "fields": [
+    {
+      "key": "application",
+      "type": "word",
+      "required": true,
+      "label": "Solver",
+      "help": "The OpenFOAM solver this case runs."
+    },
+    {
+      "key": "startFrom",
+      "type": "enum",
+      "values": ["firstTime", "startTime", "latestTime"],
+      "required": true,
+      "label": "Start from",
+      "help": "Which time to begin at. 'latestTime' continues from the newest written result."
+    },
+    {
+      "key": "startTime",
+      "type": "scalar",
+      "required": true,
+      "label": "Start time",
+      "depends": {"startFrom": "startTime"}
+    },
+    {
+      "key": "stopAt",
+      "type": "enum",
+      "values": ["endTime", "writeNow", "noWriteNow", "nextWrite"],
+      "required": true,
+      "label": "Stop at",
+      "help": "'writeNow' is how a graceful stop is requested while a run is in progress."
+    },
+    {
+      "key": "endTime",
+      "type": "scalar",
+      "required": true,
+      "label": "End time",
+      "depends": {"stopAt": "endTime"}
+    },
+    {
+      "key": "deltaT",
+      "type": "scalar",
+      "minimum": 0,
+      "exclusive_minimum": true,
+      "required": true,
+      "label": "Time step",
+      "help": "The initial step. With adjustTimeStep on, it changes to hold maxCo."
+    },
+    {
+      "key": "writeControl",
+      "type": "enum",
+      "values": [
+        "timeStep",
+        "runTime",
+        "adjustable",
+        "adjustableRunTime",
+        "cpuTime",
+        "clockTime"
+      ],
+      "required": true,
+      "label": "Write control"
+    },
+    {
+      "key": "writeInterval",
+      "type": "scalar",
+      "minimum": 0,
+      "exclusive_minimum": true,
+      "required": true,
+      "label": "Write interval",
+      "help": "Interpreted in the units writeControl selects — steps, or seconds of simulated time."
+    },
+    {
+      "key": "purgeWrite",
+      "type": "integer",
+      "minimum": 0,
+      "label": "Keep last N results",
+      "help": "0 keeps every written time. A non-zero value discards older ones as the run proceeds."
+    },
+    {
+      "key": "writeFormat",
+      "type": "enum",
+      "values": ["ascii", "binary"],
+      "label": "Write format",
+      "help": "Binary is smaller and faster; ascii can be read and edited by hand."
+    },
+    {
+      "key": "writePrecision",
+      "type": "integer",
+      "minimum": 1,
+      "label": "Write precision"
+    },
+    {
+      "key": "writeCompression",
+      "type": "bool",
+      "label": "Compress results"
+    },
+    {
+      "key": "timeFormat",
+      "type": "enum",
+      "values": ["fixed", "scientific", "general"],
+      "label": "Time directory format",
+      "help": "How written time directories are named."
+    },
+    {
+      "key": "timePrecision",
+      "type": "integer",
+      "minimum": 0,
+      "label": "Time directory precision"
+    },
+    {
+      "key": "runTimeModifiable",
+      "type": "bool",
+      "label": "Re-read settings while running",
+      "help": "Lets the solver notice edits mid-run. Required for the fallback stop path (FR-S5)."
+    },
+    {
+      "key": "adjustTimeStep",
+      "type": "bool",
+      "label": "Adjust time step automatically",
+      "help": "Varies deltaT to hold the Courant number at maxCo. Usual for transient multiphase cases."
+    },
+    {
+      "key": "maxCo",
+      "type": "scalar",
+      "minimum": 0,
+      "exclusive_minimum": true,
+      "label": "Maximum Courant number",
+      "depends": {"adjustTimeStep": "yes"},
+      "help": "Above about 1 an explicit scheme usually becomes unstable."
+    },
+    {
+      "key": "maxAlphaCo",
+      "type": "scalar",
+      "minimum": 0,
+      "exclusive_minimum": true,
+      "label": "Maximum interface Courant number",
+      "depends": {"adjustTimeStep": "yes"},
+      "help": "Applies at the phase interface in a VOF case."
+    },
+    {
+      "key": "maxDeltaT",
+      "type": "scalar",
+      "minimum": 0,
+      "exclusive_minimum": true,
+      "label": "Maximum time step",
+      "depends": {"adjustTimeStep": "yes"}
+    }
+  ]
+}

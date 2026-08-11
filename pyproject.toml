@@ -59,6 +59,9 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/foamwb"]
+# The manifest and the form schemas are read at runtime through
+# importlib.resources, so they must be in the wheel (§3.4, §5.4).
+artifacts = ["src/foamwb/data/**/*.json"]
 
 # --------------------------------------------------------------------------
 # Lint / format
