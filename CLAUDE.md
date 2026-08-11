@@ -37,7 +37,7 @@ These enforce PRD promises no type system can hold. Each has been caught doing i
 | Guard | Rule |
 |---|---|
 | `check_no_qt.py` | `foamwb.services` imports no Qt. Only `foamwb/ui/` may. AST-based, so a docstring mentioning PySide6 is fine but a deferred import inside a function is not. |
-| `check_branding.py` | The product name appears **exactly twice**, both in `src/foamwb/branding.py`. Everything else derives from `APP_ID`/`APP_DISPLAY_NAME` — including in docstrings, where a literal `.buildfoam/case.json` becomes wrong after a rename (DEC-03 leaves the name open until M8). |
+| `check_branding.py` | The product name appears **exactly twice**, both in `src/foamwb/branding.py`. Everything else derives from `APP_ID`/`APP_DISPLAY_NAME` — including in docstrings, where a literal `.buildfoam/case.json` becomes wrong after a rename (DEC-03 is now **settled**: the name is kept, decided at M8 as the PRD required. The guard stays — it is now about the name staying consistent rather than staying cheap to reverse.). |
 | `check_version_literals.py` | No OpenFOAM version (`v2512`) or lineage-specific dictionary name (`transportProperties`) in code. Read them from `src/foamwb/data/runtime-manifest.json`, which is exempt. |
 | `check_translatable.py` | Text setters take their argument from `foamwb.ui.strings` or `tr()`. **f-strings are rejected outright** — they cannot be extracted and a translator cannot reorder their parts. Compose with catalogue format strings (`"{0}  {1}"`). |
 

@@ -57,3 +57,35 @@ class TestTradeMarkCompliance:
         assert "not approved or endorsed by OpenCFD Limited" in notice
         assert "OPENFOAM®" in notice
         assert "OpenCFD®" in notice
+
+
+class TestThePublisherIdentity:
+    """DEC-03 is settled: the name is kept, and it now reaches public identifiers."""
+
+    def test_the_bundle_id_is_reverse_dns_under_a_namespace_we_control(self) -> None:
+        """Notarisation binds this to a developer team and expects it to be
+        defensible. An identifier under a GitHub account nobody owns is not."""
+        from foamwb.branding import BUNDLE_ID, PUBLISHER_NAMESPACE
+
+        assert BUNDLE_ID.startswith(PUBLISHER_NAMESPACE + ".")
+        assert PUBLISHER_NAMESPACE.count(".") >= 2
+
+    def test_the_bundle_id_matches_the_published_repository(self) -> None:
+        """The namespace and the homepage must name the same account."""
+        import tomllib
+        from pathlib import Path
+
+        from foamwb.branding import PUBLISHER_NAMESPACE
+
+        root = Path(__file__).resolve().parent.parent
+        with (root / "pyproject.toml").open("rb") as handle:
+            homepage = tomllib.load(handle)["project"]["urls"]["Homepage"]
+
+        owner = PUBLISHER_NAMESPACE.rsplit(".", 1)[-1]
+        assert f"/{owner}/".lower() in homepage.lower()
+
+    def test_the_publisher_is_not_the_product(self) -> None:
+        """Who ships it and what is shipped are renamed for different reasons."""
+        from foamwb.branding import APP_ID, PUBLISHER_NAMESPACE
+
+        assert not PUBLISHER_NAMESPACE.endswith(APP_ID)

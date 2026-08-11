@@ -75,7 +75,20 @@ Deliberately *not* the user's default Ubuntu: a deterministic support surface, n
 collision with the user's toolchain, and a self-contained uninstall.
 """
 
-BUNDLE_ID: Final = f"io.github.{APP_ID}"
+#: The namespace the application is published under. Separate from the product
+#: name because it identifies *who* ships it, not *what* is shipped — and the
+#: two are renamed for different reasons.
+PUBLISHER_NAMESPACE: Final = "io.github.mnhidayatmat"
+
+BUNDLE_ID: Final = f"{PUBLISHER_NAMESPACE}.{APP_ID}"
+"""Reverse-DNS identifier for the macOS bundle and the Windows installer.
+
+Derived from a namespace the publisher actually controls. The first version of
+this put the *product* name directly under ``io.github``, which claims a GitHub
+account nobody owns — harmless in a working tree, and not harmless at
+notarisation, where the identifier is bound to a developer team and is expected
+to be defensible.
+"""
 """Reverse-DNS bundle identifier for the macOS application and its signing
 identity (§15.3)."""
 
