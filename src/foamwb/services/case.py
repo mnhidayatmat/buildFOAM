@@ -560,9 +560,7 @@ class CaseService:
 
         control = case.path / CONTROL_DICT
         original = control.read_bytes()
-        updated = fence.install(original.decode("utf-8"), fence.solver_info_block(fields)).encode(
-            "utf-8"
-        )
+        updated = fence.install(original.decode("utf-8"), fence.run_block(fields)).encode("utf-8")
         if updated == original:
             return False
 

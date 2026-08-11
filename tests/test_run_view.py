@@ -341,3 +341,136 @@ class TestWorkerLifecycle:
         worker._active = True
         worker.start()
         assert worker._thread is None
+
+
+class TestDivergenceInTheRunView:
+    """FR-S6 reaching the screen, and stopping being offered only while useful."""
+
+    def _run_to_completion(self, qapp, view) -> None:
+        from PySide6.QtCore import QEventLoop, QTimer
+
+        loop = QEventLoop()
+        poll = QTimer()
+        poll.setInterval(10)
+        poll.timeout.connect(
+            lambda: (view._worker is not None and not view._worker.is_running) and loop.quit()
+        )
+        QTimer.singleShot(10_000, loop.quit)
+        view.start()
+        poll.start()
+        loop.exec()
+        poll.stop()
+        qapp.processEvents()
+
+    def _diverging_view(self, qapp, labels, tmp_path, qtbot) -> RunView:
+        session = FakeSession(
+            {
+                "icoFoam": ScriptedCommand(
+                    lines=[
+                        "Time = 1",
+                        "GAMG:  Solving for p, Initial residual = nan, "
+                        "Final residual = nan, No Iterations 1000",
+                    ],
+                    exit_code=1,
+                )
+            }
+        )
+        view = RunView(LIGHT, labels)
+        qtbot.addWidget(view)
+        view.set_context(session, tmp_path, plan_for(tmp_path))
+        self._run_to_completion(qapp, view)
+        return view
+
+    def test_the_banner_is_hidden_on_a_healthy_run(self, qapp, qtbot, labels, tmp_path) -> None:
+        session = FakeSession({"icoFoam": ScriptedCommand(lines=["Time = 1", "End"])})
+        view = RunView(LIGHT, labels)
+        qtbot.addWidget(view)
+        view.set_context(session, tmp_path, plan_for(tmp_path))
+        self._run_to_completion(qapp, view)
+        assert not view._banner.is_showing
+
+    def test_a_divergence_raises_the_banner(self, qapp, qtbot, labels, tmp_path) -> None:
+        view = self._diverging_view(qapp, labels, tmp_path, qtbot)
+        assert view._banner.is_showing
+        assert "diverged" in view._banner.message_text.lower()
+
+    def test_the_stop_is_withdrawn_once_the_run_has_ended(
+        self, qapp, qtbot, labels, tmp_path
+    ) -> None:
+        """A live warning leaves its Stop button behind otherwise.
+
+        The run is already over by then, so the button does nothing — and a
+        control that silently does nothing is worse than no control (§7.9).
+        """
+        view = self._diverging_view(qapp, labels, tmp_path, qtbot)
+        assert not view._banner.offers_stop
+
+    def test_a_new_run_clears_the_previous_finding(self, qapp, qtbot, labels, tmp_path) -> None:
+        view = self._diverging_view(qapp, labels, tmp_path, qtbot)
+        assert view._banner.is_showing
+        view._session = FakeSession({"icoFoam": ScriptedCommand(lines=["Time = 1", "End"])})
+        self._run_to_completion(qapp, view)
+        assert not view._banner.is_showing
+
+
+class TestRunHistory:
+    """FR-S7 — runs accumulate rather than overwrite each other."""
+
+    def _run(self, qapp, view) -> None:
+        from PySide6.QtCore import QEventLoop, QTimer
+
+        loop = QEventLoop()
+        poll = QTimer()
+        poll.setInterval(10)
+        poll.timeout.connect(
+            lambda: (view._worker is not None and not view._worker.is_running) and loop.quit()
+        )
+        QTimer.singleShot(10_000, loop.quit)
+        view.start()
+        poll.start()
+        loop.exec()
+        poll.stop()
+        qapp.processEvents()
+
+    def _case(self, tmp_path: Path) -> Path:
+        case = tmp_path / "case"
+        (case / "system").mkdir(parents=True)
+        (case / "constant").mkdir()
+        (case / "0").mkdir()
+        (case / "system" / "controlDict").write_text(
+            "FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\n"
+            "application     icoFoam;\nendTime         1;\n"
+        )
+        return case
+
+    def test_each_run_gets_its_own_log_directory(self, qapp, qtbot, labels, tmp_path) -> None:
+        """The previous fixed "r-0001" meant every run destroyed the last one's log."""
+        case = self._case(tmp_path)
+        session = FakeSession({"icoFoam": ScriptedCommand(lines=["Time = 1", "End"])})
+        view = RunView(LIGHT, labels)
+        qtbot.addWidget(view)
+        view.set_context(session, case, plan_for(case))
+
+        self._run(qapp, view)
+        self._run(qapp, view)
+
+        from foamwb.branding import CASE_METADATA_DIR
+
+        logs = sorted(p.name for p in (case / CASE_METADATA_DIR / "logs").iterdir())
+        assert logs == ["r-0001", "r-0002"]
+
+    def test_the_history_records_both(self, qapp, qtbot, labels, tmp_path) -> None:
+        from foamwb.services.case import CaseService
+
+        case = self._case(tmp_path)
+        session = FakeSession({"icoFoam": ScriptedCommand(lines=["Time = 1", "End"])})
+        view = RunView(LIGHT, labels)
+        qtbot.addWidget(view)
+        view.set_context(session, case, plan_for(case))
+
+        self._run(qapp, view)
+        self._run(qapp, view)
+
+        metadata = CaseService().open(case).metadata
+        assert [r.id for r in metadata.runs] == ["r-0001", "r-0002"]
+        assert all(r.converged for r in metadata.runs)

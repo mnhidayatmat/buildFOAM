@@ -172,6 +172,30 @@ def run_strings() -> dict[str, str]:
             "that moment is lost, and the case may need cleaning before it can "
             "run again.\n\nUse this only if the solver has stopped responding."
         ),
+        # Divergence (FR-S6). The banner states the finding; the guide link and
+        # the stop button are beside it, because a user who has just been told
+        # their run is worthless wants to end it, not go hunting for the control.
+        "diverging_title": _("Solution diverging"),
+        "diverged_title": _("Solution diverged"),
+        "diverging_suspected": _("Possible problem"),
+        "why_this": _("Why this happened"),
+        "dismiss": _("Dismiss"),
+        "diagnosis_code": _("{0} · {1}"),
+        # A composition, so a right-to-left locale can reorder it (NFR-A5).
+        "diagnosis_accessible": _("{0}: {1}"),
+        "diverged_still_running": _(
+            "The run is still going. Nothing after this point is meaningful, so "
+            "stopping now saves the remaining machine time."
+        ),
+        # Run history (FR-S7).
+        "history": _("History"),
+        "history_empty": _("Runs of this case will be listed here."),
+        "history_columns": _("When,Outcome,Stages,Duration,Final time"),
+        "history_outcome_succeeded": _("finished"),
+        "history_outcome_failed": _("failed"),
+        "history_outcome_stopped": _("stopped"),
+        "history_duration": _("{0:.0f} s"),
+        "history_procs": _("{0} cores"),
     }
 
 

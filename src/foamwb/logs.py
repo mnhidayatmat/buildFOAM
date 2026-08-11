@@ -78,6 +78,7 @@ class Event(StrEnum):
     RUN_STAGE_BEGIN = "run.stage.begin"
     RUN_STAGE_END = "run.stage.end"
     RUN_STOP_REQUESTED = "run.stop.requested"
+    RUN_DIVERGED = "run.diverged"
     RUN_END = "run.end"
 
     # Shell navigation. Useful in a diagnostics bundle: "what was on screen when

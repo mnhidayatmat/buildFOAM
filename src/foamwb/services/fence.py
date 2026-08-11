@@ -28,7 +28,19 @@ import re
 
 from foamwb.branding import APP_DISPLAY_NAME, APP_ID
 
-__all__ = ["FENCE_BEGIN", "FENCE_END", "install", "is_installed", "remove"]
+__all__ = [
+    "FENCE_BEGIN",
+    "FENCE_END",
+    "STOP_TRIGGER",
+    "abort_entry",
+    "functions_block",
+    "install",
+    "is_installed",
+    "remove",
+    "run_block",
+    "solver_info_block",
+    "solver_info_entry",
+]
 
 FENCE_BEGIN = f"// >>> {APP_ID}:begin"
 FENCE_END = f"// <<< {APP_ID}:end"
@@ -49,23 +61,75 @@ _FENCE_PATTERN = re.compile(
 #: filled per case: naming fields the case does not solve makes the object emit
 #: empty columns rather than fail, but the empty columns then reach the plot.
 SOLVER_INFO_TEMPLATE = """\
-functions
-{{
     {name}
     {{
         type            solverInfo;
         libs            (utilityFunctionObjects);
         fields          ({fields});
         writeResidualFields no;
-    }}
-}}"""
+    }}"""
+
+#: *Stop & Write* (FR-S5). Two details here are measured rather than assumed.
+#:
+#: ``action writeNow`` is **required**. The FO's own default is ``nextWrite``,
+#: which on a case writing every 100 steps means "stop in some minutes", not
+#: "stop now" — a stop button that behaved that way would look broken.
+#:
+#: The FO **deletes the trigger file** once it has read it, which is how the
+#: application knows the request was received rather than merely made.
+ABORT_TEMPLATE = """\
+    {name}
+    {{
+        type            abort;
+        libs            (utilityFunctionObjects);
+        file            "<case>/{trigger}";
+        action          writeNow;
+    }}"""
+
+#: Name of the trigger file, hidden and application-scoped so it cannot collide
+#: with anything the user keeps in their case directory.
+STOP_TRIGGER = f".{APP_ID}-stop"
 
 
-def solver_info_block(fields: tuple[str, ...], name: str = "solverInfo") -> str:
+def solver_info_entry(fields: tuple[str, ...], name: str = "solverInfo") -> str:
     """Render the ``solverInfo`` function object for the given fields."""
     if not fields:
         raise ValueError("At least one field is needed for solverInfo")
     return SOLVER_INFO_TEMPLATE.format(name=name, fields=" ".join(fields))
+
+
+def abort_entry(name: str = "abort", trigger: str = STOP_TRIGGER) -> str:
+    """Render the ``abort`` function object that carries out *Stop & Write*."""
+    return ABORT_TEMPLATE.format(name=name, trigger=trigger)
+
+
+def functions_block(*entries: str) -> str:
+    """Wrap function-object entries in the single ``functions`` dictionary.
+
+    One block, not one per object: ``functions`` is a dictionary keyword, and a
+    ``controlDict`` containing it twice is rejected outright. Composing here is
+    what lets the fence carry both monitoring and the stop control while staying
+    a single removable region (FR-C5).
+    """
+    if not entries:
+        raise ValueError("At least one function object is needed")
+    body = "\n\n".join(entries)
+    return f"functions\n{{\n{body}\n}}"
+
+
+def solver_info_block(fields: tuple[str, ...], name: str = "solverInfo") -> str:
+    """The monitoring object alone, in its own ``functions`` block."""
+    return functions_block(solver_info_entry(fields, name))
+
+
+def run_block(fields: tuple[str, ...]) -> str:
+    """Everything the application installs for a run: monitoring and the stop.
+
+    Both or neither. Installing the stop control only when the user presses Stop
+    would be too late — ``controlDict`` is read at startup, and a function object
+    added mid-run is never picked up.
+    """
+    return functions_block(solver_info_entry(fields), abort_entry())
 
 
 def is_installed(text: str) -> bool:

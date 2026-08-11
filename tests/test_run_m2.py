@@ -228,7 +228,21 @@ class TestRunController:
     def test_a_failure_carries_an_error_code(self, tmp_path) -> None:
         session = FakeSession({"icoFoam": ScriptedCommand(exit_code=1)})
         result = RunController(session).execute(_plan(tmp_path))
-        assert result.failed_stage.reason is ErrorCode.DIVERGED
+        assert result.failed_stage.reason is not None
+
+    def test_a_bare_exit_one_is_not_called_a_divergence(self, tmp_path) -> None:
+        """The exit code alone never justifies naming a cause (M5, FR-S6).
+
+        This test previously asserted the opposite — that exit 1 means E-S03.
+        Measured against the real runtime, a mistyped ``endTime``, a missing
+        ``0/p`` and a diverged solution *all* exit 1, so that rule reported a
+        spelling mistake as a numerical instability and sent the user looking for
+        a problem that was not there.
+        """
+        session = FakeSession({"icoFoam": ScriptedCommand(exit_code=1)})
+        result = RunController(session).execute(_plan(tmp_path))
+        assert result.failed_stage.reason is ErrorCode.SOLVER_FAILED
+        assert result.failed_stage.diagnosis is None
 
     def test_exit_zero_with_errors_in_the_output_still_fails(self, tmp_path) -> None:
         # E-S02: checkMesh reports mesh errors and exits 0. Trusting the exit code

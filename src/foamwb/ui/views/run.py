@@ -20,6 +20,7 @@ disagree.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
@@ -37,12 +38,13 @@ from PySide6.QtWidgets import (
 
 from foamwb.branding import CASE_METADATA_DIR
 from foamwb.logs import Event, get_logger, log_event
-from foamwb.services.case import CaseService
+from foamwb.services.case import CaseService, RunRecord
 from foamwb.services.monitor import MonitorService
 from foamwb.services.run import RunPlan, RunResult, StageState, StopMode
 from foamwb.services.runtime import RuntimeSession
 from foamwb.ui.run_worker import RunWorker
 from foamwb.ui.theme import Palette
+from foamwb.ui.widgets.diagnosis_banner import DiagnosisBanner
 from foamwb.ui.widgets.log_pane import LogPane
 from foamwb.ui.widgets.residual_plot import ResidualPlot
 from foamwb.ui.widgets.stage_strip import StageStrip
@@ -62,6 +64,8 @@ class RunView(QWidget):
 
     run_started = Signal()
     run_finished = Signal(RunResult)
+    guide_requested = Signal(str)
+    """A guide anchor from a diagnosis (FR-G2), forwarded to the shell."""
 
     def __init__(
         self,
@@ -79,6 +83,8 @@ class RunView(QWidget):
         self._plan: RunPlan | None = None
         self._worker: RunWorker | None = None
         self._monitor: MonitorService | None = None
+        self._run_id = "r-0001"
+        self._run_started = datetime.now(UTC)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
@@ -86,6 +92,13 @@ class RunView(QWidget):
 
         self._strip = StageStrip(palette, labels)
         layout.addWidget(self._strip)
+
+        # Above the log, not inside it: a diverging run's log scrolls fast, and a
+        # finding placed in the stream would be gone before it was read.
+        self._banner = DiagnosisBanner(palette, labels)
+        self._banner.stop_requested.connect(lambda: self.stop(StopMode.WRITE))
+        self._banner.guide_requested.connect(self.guide_requested)
+        layout.addWidget(self._banner)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         self._log = LogPane(palette, labels)
@@ -175,15 +188,23 @@ class RunView(QWidget):
         except (OSError, ValueError) as exc:
             log_event(_log, Event.ERROR_RAISED, where="enable_monitoring", error=str(exc))
 
+        # A fresh id per run, so logs accumulate rather than overwrite. The
+        # previous fixed "r-0001" meant every run destroyed the evidence of the
+        # one before it — which is exactly what a user comparing two runs needs.
+        self._run_id = self._next_run_id()
+        self._run_started = datetime.now(UTC)
+        self._banner.clear()
+
         self._worker = RunWorker(
             self._session,
             self._plan,
-            log_dir=self._case / CASE_METADATA_DIR / "logs" / "r-0001",
+            log_dir=self._case / CASE_METADATA_DIR / "logs" / self._run_id,
         )
         self._worker.lines.connect(self._on_lines)
         self._worker.stage_changed.connect(self._on_stage)
         self._worker.finished.connect(self._on_finished)
         self._worker.failed.connect(self._on_failed)
+        self._worker.diverged.connect(self._on_diverged)
 
         self._set_running()
         self._timer.start()
@@ -231,6 +252,11 @@ class RunView(QWidget):
         if state is StageState.RUNNING:
             self._status.setText(self._labels["running_stage"].format(stage))
 
+    @Slot(object)
+    def _on_diverged(self, found: object) -> None:
+        """Show a live finding (FR-S6), while the run can still be stopped."""
+        self._banner.show_diagnosis(found, running=True)
+
     @Slot(RunResult)
     def _on_finished(self, result: RunResult) -> None:
         # One last poll: the solver writes its final residual as it exits, and
@@ -251,7 +277,85 @@ class RunView(QWidget):
             self._status.setText(
                 self._labels[f"run_{result.outcome.value}"].format(result.wall_seconds)
             )
+
+        # The banner must stop offering a stop once there is nothing to stop.
+        # A live warning raised mid-run leaves its Stop button on screen, and a
+        # button that silently does nothing is worse than no button (§7.9).
+        if self._banner.is_showing and self._banner.diagnosis is not None:
+            self._banner.show_diagnosis(self._banner.diagnosis, running=False)
+        elif failed is not None and failed.diagnosis is not None:
+            # A post-mortem instead, for a run that died before the live watcher
+            # could say anything — a blow-up on the first timestep gives it no
+            # chance, which is how the observed failures actually behave.
+            self._banner.show_diagnosis(failed.diagnosis, running=False)
+
+        self._record_run(result)
         self.run_finished.emit(result)
+
+    # -- history -----------------------------------------------------------
+
+    def _next_run_id(self) -> str:
+        """The next unused ``r-NNNN``, read from the directory rather than a counter.
+
+        Reading the directory means a restarted application continues the
+        numbering instead of overwriting r-0001 again.
+        """
+        if self._case is None:
+            return "r-0001"
+        logs = self._case / CASE_METADATA_DIR / "logs"
+        used = {p.name for p in logs.glob("r-*")} if logs.is_dir() else set()
+        index = 1
+        while f"r-{index:04d}" in used:
+            index += 1
+        return f"r-{index:04d}"
+
+    def _record_run(self, result: RunResult) -> None:
+        """Append this run to the case's history (FR-S7).
+
+        Failing to record must never surface as a run failure: the run happened,
+        and its result is already on screen. A history that cannot be written is
+        a lost note, not a lost result.
+        """
+        if self._case is None:
+            return
+        try:
+            case = self._cases.open(self._case)
+            self._cases.record_run(
+                case,
+                RunRecord(
+                    id=self._run_id,
+                    started=self._run_started.isoformat(timespec="seconds"),
+                    finished=datetime.now(UTC).isoformat(timespec="seconds"),
+                    exit_code=(result.failed_stage.exit_code if result.failed_stage else 0),
+                    plan=tuple(s.name for s in result.stages),
+                    n_procs=self._plan.n_procs if self._plan else 1,
+                    wall_seconds=round(result.wall_seconds, 3),
+                    final_time=self._latest_time(),
+                    converged=result.succeeded,
+                    log_dir=self._run_id,
+                ),
+            )
+        except (OSError, ValueError) as exc:
+            log_event(_log, Event.ERROR_RAISED, where="record_run", error=str(exc))
+
+    def _latest_time(self) -> str | None:
+        """The last time directory the run wrote, which is what a user looks for.
+
+        Named from the directory rather than from ``endTime``: a stopped or
+        diverged run has an ``endTime`` it never reached, and reporting it would
+        describe a result the case does not contain.
+        """
+        if self._case is None:
+            return None
+        times = []
+        for path in self._case.iterdir():
+            if not path.is_dir():
+                continue
+            try:
+                times.append((float(path.name), path.name))
+            except ValueError:
+                continue
+        return max(times)[1] if times else None
 
     @Slot(str)
     def _on_failed(self, message: str) -> None:

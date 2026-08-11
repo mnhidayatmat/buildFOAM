@@ -22,6 +22,7 @@ Three behaviours are requirements rather than conveniences:
 from __future__ import annotations
 
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -29,11 +30,14 @@ from pathlib import Path, PurePosixPath
 
 from foamwb.codes import Code, ErrorCode
 from foamwb.logs import Event, get_logger, log_event
+from foamwb.services import fence
 from foamwb.services.case import Case
+from foamwb.services.run.diagnosis import Diagnosis, DivergenceWatcher, diagnose
 from foamwb.services.run.plan import RunPlan, Severity, Stage, StageState
 from foamwb.services.runtime.session import RuntimeSession
 
 __all__ = [
+    "ABORT_ACKNOWLEDGED",
     "RunController",
     "RunOutcome",
     "RunResult",
@@ -41,6 +45,17 @@ __all__ = [
     "StopMode",
     "build_plan",
 ]
+
+#: What the ``abort`` function object prints when it acts on the trigger file.
+#: Matched rather than inferred: a *Stop & Write* exits **0**, indistinguishable
+#: by status from a run that reached its ``endTime``, and reporting an early stop
+#: as a completed run would be a lie the stage strip tells silently.
+ABORT_ACKNOWLEDGED = "USER REQUESTED ABORT"
+
+#: How many trailing log lines are kept for post-mortem diagnosis. A long run's
+#: log is far too large to hold, and every failure signal — the nan, the fatal
+#: banner, the stack trace — appears at the end.
+_TAIL_LINES = 4000
 
 _log = get_logger("run.controller")
 
@@ -87,6 +102,12 @@ class StageResult:
     support has something to name."""
 
     detail: str = ""
+
+    diagnosis: Diagnosis | None = None
+    """The log-derived explanation (FR-S6), when the log offered one.
+
+    ``None`` when nothing in the output explained the failure, which the run
+    experience shows as the raw log rather than as an invented cause."""
 
 
 @dataclass(slots=True)
@@ -186,12 +207,15 @@ class RunController:
         *,
         on_line: LineCallback | None = None,
         on_state: StateCallback | None = None,
+        on_diagnosis: Callable[[Diagnosis], None] | None = None,
     ) -> None:
         self._session = session
         self._on_line = on_line
         self._on_state = on_state
+        self._on_diagnosis = on_diagnosis
         self._current = None
         self._stop_requested: StopMode | None = None
+        self._case: Path | None = None
 
     # -- execution ---------------------------------------------------------
 
@@ -205,6 +229,10 @@ class RunController:
         """
         started = time.monotonic()
         self._stop_requested = None
+        self._case = plan.case
+        # A trigger the previous run's solver never consumed would stop this one
+        # on its first timestep, which would look like a solver fault.
+        self.clear_stop_trigger()
         results: list[StageResult] = []
 
         states = plan.stage_states()
@@ -230,6 +258,15 @@ class RunController:
                 break
             if result.state is StageState.FAILED:
                 outcome = RunOutcome.FAILED
+                break
+            if self._stop_requested is not None:
+                # The stop arrived while an earlier stage was running. Without
+                # this the loop would carry on and launch the solver *after* the
+                # user asked to stop — and the pending trigger would then halt it
+                # on its first timestep, leaving a time directory at t≈0 that
+                # looks like a solver fault rather than an honoured request.
+                outcome = RunOutcome.STOPPED
+                self.clear_stop_trigger()
                 break
 
         # Stages after a failure never ran, but the stage strip shows the whole
@@ -266,6 +303,10 @@ class RunController:
             log_dir.mkdir(parents=True, exist_ok=True)
             log_file = (log_dir / f"log.{stage.name}").open("w", encoding="utf-8")
 
+        tail: deque[str] = deque(maxlen=_TAIL_LINES)
+        watcher = DivergenceWatcher() if stage.monitored else None
+        acknowledged = False
+
         try:
             process = self._session.run(argv, cwd=cwd)
             self._current = process
@@ -274,6 +315,15 @@ class RunController:
                     log_file.write(line + "\n")
                 if self._on_line is not None:
                     self._on_line(stage.name, line)
+                tail.append(line)
+                if ABORT_ACKNOWLEDGED in line:
+                    acknowledged = True
+                if watcher is not None and (found := watcher.feed(line)) is not None:
+                    # Reported while the run is still going, which is the only
+                    # point at which the user can still save the machine time.
+                    log_event(_log, Event.RUN_DIVERGED, stage=stage.name, code=found.code.id)
+                    if self._on_diagnosis is not None:
+                        self._on_diagnosis(found)
                 severity = classify(line)
                 if severity is not None and severity > worst:
                     worst = severity
@@ -294,19 +344,31 @@ class RunController:
 
         elapsed = time.monotonic() - started
 
-        if self._stop_requested is not None and code != 0:
+        if acknowledged or (self._stop_requested is not None and code != 0):
             # A stopped run is not a failed one. Reporting a deliberate stop as a
             # failure would train users to ignore failures.
+            #
+            # `acknowledged` is tested first and independently of the exit code
+            # because *Stop & Write* succeeds: the solver writes its final time
+            # directory and exits 0. Judged on status alone it is indistinguishable
+            # from a run that reached its endTime, and the stage strip would claim
+            # the run completed when the user had cut it short.
             state = StageState.CANCELLED
             result = StageResult(name=stage.name, state=state, exit_code=code, wall_seconds=elapsed)
         elif code != 0:
+            found = diagnose("\n".join(tail), code) if stage.monitored else None
             result = StageResult(
                 name=stage.name,
                 state=StageState.FAILED,
                 exit_code=code,
                 wall_seconds=elapsed,
-                reason=self._reason_for(stage, code),
-                detail=f"{stage.name} exited with status {code}",
+                reason=found.code if found is not None else self._reason_for(stage, code),
+                detail=(
+                    found.message
+                    if found is not None
+                    else f"{stage.name} exited with status {code}"
+                ),
+                diagnosis=found,
             )
         elif stage.fail_on is not None and worst >= stage.fail_on:
             # Exit code 0 but the output says otherwise — checkMesh's behaviour,
@@ -340,32 +402,79 @@ class RunController:
 
     @staticmethod
     def _reason_for(stage: Stage, code: int) -> Code:
+        """Fallback when the log explains nothing (:func:`diagnose` returned None).
+
+        Deliberately vague for a solver stage, and that is the point. The exit
+        code cannot tell a divergence from a typo — a mistyped ``endTime``, a
+        missing ``0/p`` and a run diverged to ``nan`` all exit **1** — so the
+        earlier ``code == 1 → DIVERGED`` rule reported a spelling mistake as a
+        numerical instability. Naming the wrong cause confidently is worse than
+        admitting the log did not say (§7.9 rule 6).
+        """
         if stage.monitored:
-            return ErrorCode.DIVERGED if code == 1 else ErrorCode.FLOATING_POINT_EXCEPTION
+            return ErrorCode.SOLVER_FAILED
         return ErrorCode.MESH_FAILED
 
     # -- stopping ----------------------------------------------------------
 
-    def stop(self, mode: StopMode = StopMode.WRITE) -> None:
-        """Request a stop (FR-S5).
+    def stop(self, mode: StopMode = StopMode.WRITE) -> bool:
+        """Request a stop (FR-S5). Returns whether the request was delivered.
 
-        :data:`StopMode.WRITE` is recorded here and carried out by the run
-        experience at M5, which installs the ``abort`` function object and
-        triggers it — a solver-level stop that yields a complete final time
-        directory. This method never escalates to a signal on its own: quietly
-        turning a graceful stop into SIGTERM would produce exactly the partial
-        time directory DEC-14 removed the pause button to avoid.
+        :data:`StopMode.WRITE` writes the ``abort`` function object's trigger
+        file. The solver notices it at the end of the current timestep, writes a
+        **complete** time directory and exits cleanly — verified against
+        ``icoFoam``, which stopped at t = 36.475, a time that is not on the write
+        interval and so could only have come from ``writeNow``.
+
+        This method never escalates to a signal on its own: quietly turning a
+        graceful stop into SIGTERM would produce exactly the partial time
+        directory DEC-14 removed the pause button to avoid. The user escalates,
+        by choosing a stronger mode.
         """
         self._stop_requested = mode
         log_event(_log, Event.RUN_STOP_REQUESTED, mode=mode.value)
 
         process = self._current
+        if mode is StopMode.WRITE:
+            return self._request_write_stop()
         if process is None:
-            return
+            return False
         if mode is StopMode.TERMINATE:
             process.terminate()
         elif mode is StopMode.KILL:
             process.kill()
+        return True
+
+    def _request_write_stop(self) -> bool:
+        """Create the trigger file the ``abort`` function object watches.
+
+        The file's *content* carries ``action=writeNow`` as well, even though the
+        installed object already specifies it. That costs one line and makes the
+        stop work against a case whose fence was written by an older version, or
+        removed and hand-restored by a user — the fallback FR-S5 asks for, at no
+        added complexity.
+        """
+        if self._case is None:
+            return False
+        trigger = self._case / fence.STOP_TRIGGER
+        try:
+            trigger.write_text("action=writeNow\n", encoding="utf-8")
+        except OSError:
+            return False
+        return True
+
+    def clear_stop_trigger(self) -> None:
+        """Remove a trigger file the solver never consumed.
+
+        The function object deletes the file itself once it has acted on it, so
+        one left behind means the request was never seen — a stage that had
+        already finished, or a case whose fence is missing. Leaving it would stop
+        the *next* run the instant it started, which would look like a bug in the
+        solver rather than a leftover from a previous stop.
+        """
+        if self._case is None:
+            return
+        (self._case / fence.STOP_TRIGGER).unlink(missing_ok=True)
 
     @property
     def stop_requested(self) -> StopMode | None:

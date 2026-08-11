@@ -125,6 +125,22 @@ class ErrorCode:
     DECOMPOSITION_MISMATCH = _c(
         "E-S08", "Processor count and numberOfSubdomains mismatch", "running/decomposition-mismatch"
     )
+    SOLVER_SETUP_ERROR = _c("E-S09", "Solver rejected the case setup", "running/setup-error")
+    """A ``FOAM FATAL ERROR`` before or during the run: a missing field, an
+    unknown keyword, an unreadable dictionary.
+
+    Distinct from :attr:`PARSE_ERROR` (E-C02), which is *this application's*
+    parser failing. A case can parse perfectly here and still be rejected by the
+    solver, and telling the user their file is unparseable when OpenFOAM has just
+    named the exact line is the sort of second-hand diagnosis §9 exists to stop.
+    """
+
+    SOLVER_FAILED = _c("E-S10", "Solver failed for an unstated reason", "running/solver-failed")
+    """The honest fallback when the log explains nothing.
+
+    Vague on purpose. A solver exits **1** for a diverged solution, a mistyped
+    keyword and a missing field alike, so a code chosen from the exit status
+    would name a cause that was never established."""
 
     # -- Content (L) -------------------------------------------------------
     SIGNATURE_INVALID = _c("E-L01", "Signature verification failed", "library/signature-invalid")

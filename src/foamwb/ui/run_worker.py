@@ -57,6 +57,13 @@ class RunWorker(QObject):
     """``(stage, [line, ...])`` — batched output, in order."""
 
     stage_changed = Signal(str, StageState)
+
+    diverged = Signal(object)
+    """A :class:`Diagnosis`, emitted the moment the run stops making sense
+    (FR-S6) rather than when it ends. A twelve-hour run that blows up at t = 2 is
+    the case this exists for: after the fact the diagnosis is a post-mortem;
+    during, it is ten hours of machine time the user can still get back."""
+
     finished = Signal(RunResult)
     failed = Signal(str)
     """Emitted only for an exception that escaped the controller. A run that fails
@@ -77,6 +84,7 @@ class RunWorker(QObject):
         self._log_dir = log_dir
         self._thread: QThread | None = None
         self._controller: RunController | None = None
+        self._diagnosis: object | None = None
         # Tracked as a plain flag rather than asked of the QThread. Qt deletes
         # the thread's C++ object once it finishes (deleteLater), leaving this
         # side holding a dangling wrapper: calling isRunning() on it raises
@@ -118,6 +126,22 @@ class RunWorker(QObject):
         if self._controller is not None:
             self._controller.stop(mode)
 
+    def _on_diagnosis(self, found: object) -> None:
+        """Forward a live diagnosis, flushing the log batch first.
+
+        Order matters: the banner names a line, and a user who looks for that
+        line must find it. Emitting first would show a diagnosis whose evidence
+        is still sitting in an unflushed batch.
+        """
+        self._flush()
+        self._diagnosis = found
+        self.diverged.emit(found)
+
+    @property
+    def diagnosis(self) -> object | None:
+        """The live diagnosis, if one was raised during this run."""
+        return self._diagnosis
+
     def wait(self, timeout_ms: int = 30_000) -> bool:
         """Block until the thread ends. For shutdown, not for normal use."""
         if self._thread is None or not self._active:
@@ -143,7 +167,10 @@ class RunWorker(QObject):
 
     def _execute(self) -> None:
         self._controller = RunController(
-            self._session, on_line=self._on_line, on_state=self._on_state
+            self._session,
+            on_line=self._on_line,
+            on_state=self._on_state,
+            on_diagnosis=self._on_diagnosis,
         )
         self._last_flush = time.monotonic()
         try:
