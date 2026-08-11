@@ -54,7 +54,7 @@ What it does *not* tolerate is structural impossibility — an unbalanced brace,
 
 Coverage:
 
-- **368 vendored dictionaries** from 23 cases (§12.1 axes: incompressible/compressible, steady/transient, blockMesh/snappyHexMesh, single/multiphase), run in CI on every commit.
+- **368 vendored dictionaries** from 23 cases (§12.1 axes: incompressible/compressible, steady/transient, blockMesh/snappyHexMesh, single/multiphase), run by every `preflight.py`.
 - **9,781 dictionaries** in the full v2512 tutorial suite round-trip byte-for-byte locally. This sweep is opt-in — it needs an OpenFOAM install — and is what to run after any lexer change:
 
   ```sh
@@ -84,19 +84,19 @@ uv run ruff format .         # format
 
 uv run buildfoam             # launch the shell
 
-uv run python tools/check_no_qt.py
-uv run python tools/check_branding.py
-uv run python tools/check_version_literals.py
-uv run python tools/check_translatable.py
+uv run python tools/preflight.py          # everything below, in order
+uv run python tools/preflight.py --fast   # skip the tests that need OpenFOAM
 ```
+
+**There is no CI.** `preflight.py` is the whole safety net, so run it before you push — it runs lint, format, the four architectural guards, the test suite and the §12.3 numerical gate, stopping at the first failure.
+
+What it cannot check, and no local run can: **Windows**. The product targets both platforms (§3.1) and this is one of them. The Windows paths in `foamwb.paths` are exercised through monkeypatched tests, which prove the logic and nothing about the platform. §12.4's platform acceptance suite is manual and gated on release for that reason.
 
 Qt widget tests render offscreen, so the suite needs no display and works over ssh. Tests marked `requires_runtime` exercise a real OpenFOAM installation and skip when none is present:
 
 ```sh
 uv run pytest -m requires_runtime      # needs OpenFOAM installed
 ```
-
-CI runs all of the above on macOS and Windows. Linux is not a desktop target (NG4), but it becomes a CI target at M2 for the golden-case regression (§12.3), which needs a real OpenFOAM install.
 
 ## Four guards worth understanding before you commit
 
