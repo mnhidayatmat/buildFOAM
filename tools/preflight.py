@@ -74,6 +74,11 @@ CHECKS: tuple[Check, ...] = (
         why="finding strings later costs far more than routing them now",
     ),
     Check(
+        name="FR-G2 every error code has a guide page",
+        argv=("python", "tools/check_guide_links.py"),
+        why="M7's exit criterion: a link that goes nowhere teaches distrust",
+    ),
+    Check(
         name="tests",
         argv=("pytest", "-q", "--cov"),
         why="§12.2's parser gate and the whole service layer",

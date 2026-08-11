@@ -560,6 +560,21 @@ def verify_strings() -> dict[str, str]:
     }
 
 
+def guide_strings() -> dict[str, str]:
+    """The guide (FR-G1, FR-G2)."""
+    return {
+        "guide_heading": _("Guide"),
+        "guide_search": _("Search the guide"),
+        "guide_search_placeholder": _("Search"),
+        "guide_contents": _("Contents"),
+        "guide_no_results": _("Nothing found for {0}."),
+        "guide_results": _("{0} results for {1}"),
+        "guide_offline_note": _("The guide is part of the application and works offline."),
+        "guide_missing": _("The guide could not be loaded."),
+        "guide_result_row": _("{0} — {1}"),
+    }
+
+
 def library_strings() -> dict[str, str]:
     """The content library (§7.8, FR-L1 to FR-L5).
 

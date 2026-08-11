@@ -53,6 +53,7 @@ from foamwb.ui.appearance import resolve_palette
 from foamwb.ui.footer import StatusFooter
 from foamwb.ui.navrail import NAV_ITEMS
 from foamwb.ui.theme import Palette, stylesheet
+from foamwb.ui.views.guide import GuideView
 from foamwb.ui.views.hub import HubView
 from foamwb.ui.views.initial import InitialConditionsView
 from foamwb.ui.views.library import LibraryView
@@ -215,6 +216,10 @@ class Shell(QMainWindow):
         self._views["initial"] = self._initial
         self._stack.addWidget(self._initial)
 
+        self._guide = GuideView(self._palette, {**self._strings, **strings.guide_strings()})
+        self._views["guide"] = self._guide
+        self._stack.addWidget(self._guide)
+
         self._verify = VerifyView(self._palette, {**self._strings, **strings.verify_strings()})
         self._views["verify"] = self._verify
         self._stack.addWidget(self._verify)
@@ -241,6 +246,9 @@ class Shell(QMainWindow):
         # matrix has to be re-read rather than left showing the old rules.
         self._regions.patches_changed.connect(self._reload_case)
         self._verify.file_requested.connect(lambda _p: self.show_view("cases"))
+        # FR-G2: a diagnosis carries a guide anchor, and following it must land
+        # on the section rather than the top of a nine-section page.
+        self._run.guide_requested.connect(self.show_guide)
         self._workflow.action_requested.connect(self._on_step_action)
         self._workflow.return_to_mesh.connect(self._on_return_to_mesh)
         self._footer.setup_requested.connect(lambda: self.show_view("setup"))
@@ -311,6 +319,14 @@ class Shell(QMainWindow):
         # splitter would not be.
         collapse = QShortcut(QKeySequence("Ctrl+B"), self)
         collapse.activated.connect(self.toggle_workflow_panel)
+
+    @Slot(str)
+    def show_guide(self, anchor: str) -> bool:
+        """Open a guide section by anchor. Returns whether it resolved."""
+        if not self._guide.show_anchor(anchor):
+            return False
+        self.show_view("guide")
+        return True
 
     def _reload_case(self) -> None:
         """Re-read the open case after something changed it underneath us."""
@@ -603,6 +619,10 @@ class Shell(QMainWindow):
     @property
     def verify(self) -> VerifyView:
         return self._verify
+
+    @property
+    def guide(self) -> GuideView:
+        return self._guide
 
     @property
     def initial(self) -> InitialConditionsView:
