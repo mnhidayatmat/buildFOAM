@@ -74,6 +74,11 @@ CHECKS: tuple[Check, ...] = (
         why="finding strings later costs far more than routing them now",
     ),
     Check(
+        name="NFR-A2 colours come from the palette",
+        argv=("python", "tools/check_palette_only.py"),
+        why="a literal does not change with the theme, so it is wrong in one of them",
+    ),
+    Check(
         name="FR-G2 every error code has a guide page",
         argv=("python", "tools/check_guide_links.py"),
         why="M7's exit criterion: a link that goes nowhere teaches distrust",
