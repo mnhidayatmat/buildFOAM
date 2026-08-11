@@ -211,6 +211,22 @@ class PreprocessorView(QWidget):
             return  # a group header
         self.open_file(Path(path))
 
+    def _journal_target_for(self, path: Path) -> tuple[Path | None, str]:
+        """Which case and relative path a buffer belongs to (NFR-R3).
+
+        Both sides are resolved before comparing: on macOS ``/tmp`` is a symlink
+        to ``/private/tmp``, so a caller passing an unresolved path made
+        ``relative_to`` raise — and journalling must never be able to stop a file
+        being opened. A path outside the case simply is not journalled.
+        """
+        if self._case is None:
+            return None, ""
+        try:
+            root = self._case.path.resolve()
+            return root, path.resolve().relative_to(root).as_posix()
+        except (ValueError, OSError):
+            return None, ""
+
     def open_file(self, path: Path) -> None:
         """Show a dictionary in both tabs.
 
@@ -220,6 +236,10 @@ class PreprocessorView(QWidget):
         """
         self._current = path
         data = path.read_bytes()
+        # NFR-R3: tell the editor which file this buffer belongs to, so an
+        # unsaved edit survives a crash. Set before the content, so the first
+        # change is already attributable.
+        self._text.set_journal_target(*self._journal_target_for(path))
         self._text.set_content(data)
 
         schema = load_schema(path.name)

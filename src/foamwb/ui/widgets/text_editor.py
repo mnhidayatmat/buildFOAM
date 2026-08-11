@@ -23,7 +23,9 @@ colours.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRegularExpression, Signal
+from pathlib import Path
+
+from PySide6.QtCore import QRegularExpression, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -42,6 +44,7 @@ from PySide6.QtWidgets import (
 )
 
 from foamwb.services.foamdict import Document, ParseError, TokenKind, tokenize
+from foamwb.services.journal import JournalService
 from foamwb.ui.theme import Palette
 
 __all__ = ["DictionaryHighlighter", "TextEditor"]
@@ -121,6 +124,12 @@ def _format(colour: str) -> QTextCharFormat:
     return fmt
 
 
+#: How long typing must pause before the buffer is journalled. Long enough
+#: that a disk write never lands between keystrokes, short enough that the
+#: most a crash can cost is a sentence.
+JOURNAL_DELAY_MS = 1500
+
+
 class TextEditor(QWidget):
     """Edit any dictionary as text, with validate-on-save (FR-P6)."""
 
@@ -173,9 +182,28 @@ class TextEditor(QWidget):
         row.addWidget(self._save_button)
         layout.addLayout(row)
 
+        # NFR-R3. Coalesced rather than written per keystroke: a disk write in
+        # the typing path would be felt, and a second of lost work is not the
+        # failure this exists to prevent.
+        self._journal = JournalService()
+        self._journal_target: tuple[Path, str] | None = None
+        self._journal_timer = QTimer(self)
+        self._journal_timer.setSingleShot(True)
+        self._journal_timer.setInterval(JOURNAL_DELAY_MS)
+        self._journal_timer.timeout.connect(self._write_journal)
+
         self.set_content(b"")
 
     # -- content -----------------------------------------------------------
+
+    def set_journal_target(self, case: Path | None, relative: str = "") -> None:
+        """Say which file this buffer belongs to, so it can be journalled.
+
+        Without a target nothing is recorded — an editor showing a scratch
+        buffer has no file to recover *into*, and journalling it would offer
+        the user a recovery for something that was never theirs.
+        """
+        self._journal_target = (case, relative) if case is not None and relative else None
 
     def set_content(self, data: bytes) -> None:
         """Load a dictionary. Decoding is lenient so any file can be opened."""
@@ -194,6 +222,30 @@ class TextEditor(QWidget):
 
     def revert(self) -> None:
         self.set_content(self._original)
+        self._clear_journal()
+
+    # -- journalling (NFR-R3) ----------------------------------------------
+
+    def _write_journal(self) -> None:
+        if self._journal_target is None:
+            return
+        case, relative = self._journal_target
+        if self.is_modified:
+            self._journal.record(case, relative, self._view.toPlainText())
+        else:
+            self._journal.forget(case, relative)
+
+    def _clear_journal(self) -> None:
+        """Drop the entry. Called on save and on revert — in both cases the
+        buffer no longer differs from something the user wants kept."""
+        self._journal_timer.stop()
+        if self._journal_target is not None:
+            self._journal.forget(*self._journal_target)
+
+    def flush_journal(self) -> None:
+        """Write any pending entry immediately, for shutdown."""
+        self._journal_timer.stop()
+        self._write_journal()
 
     # -- saving ------------------------------------------------------------
 
@@ -219,7 +271,11 @@ class TextEditor(QWidget):
             return False
 
         self._original = self.content
+        # The buffer is on disk now, so the journal entry has done its job.
+        # Kept until *after* the save succeeds: dropping it first would lose the
+        # recovery in the window where writing the file is what fails.
         self.saved.emit(self._original)
+        self._clear_journal()
         self._update_state()
         return True
 
@@ -267,6 +323,8 @@ class TextEditor(QWidget):
 
     def _on_changed(self) -> None:
         self._update_state()
+        if self._journal_target is not None:
+            self._journal_timer.start()
 
     def _update_state(self) -> None:
         modified = self.is_modified
