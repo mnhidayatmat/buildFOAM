@@ -25,6 +25,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QInputDialog,
     QMainWindow,
     QMessageBox,
     QSplitter,
@@ -37,6 +38,7 @@ from foamwb.branding import APP_DISPLAY_NAME
 from foamwb.codes import ErrorCode
 from foamwb.logs import Event, get_logger, log_event
 from foamwb.services.case import CaseError, CaseService
+from foamwb.services.newcase import NewCaseError, create_case
 from foamwb.services.properties import groups_for_step
 from foamwb.services.recents import RecentCase
 from foamwb.services.run import build_plan
@@ -134,6 +136,8 @@ class Shell(QMainWindow):
         # the one path never exercised.
         self._choose_directory = self._ask_for_directory
         self._report = self._show_message
+        self._ask_text = self._ask_for_text
+        self._reveal = self._open_in_file_manager
 
         self._views: dict[str, QWidget] = {}
         self._build_views()
@@ -496,19 +500,84 @@ class Shell(QMainWindow):
     def _on_hub_action(self, action: str) -> None:
         """Route a Hub action.
 
-        Everything except navigation needs a service that does not exist yet, so
-        those actions route to the view that will own them. Wiring them to
-        nothing would make the Hub's buttons dead on arrival, which FR-A1's
-        "every target reachable in one click" forbids.
+        Every action does the thing it is named after. Two of them used to fall
+        through to "show the Cases view", which with no case open is an empty
+        panel — so clicking *New Case* looked like clicking nothing, which §7.9
+        rule 1 forbids more strongly than it forbids an unimplemented feature.
         """
-        if action == "open_case":
-            self.open_case_dialog()
+        handlers = {
+            "open_case": self.open_case_dialog,
+            "new_case": self.new_case_dialog,
+            "case_folder": self.reveal_case_folder,
+        }
+        if handler := handlers.get(action):
+            handler()
             return
         destinations = {"library": "library", "guide": "guide", "settings": "setup"}
-        if action in destinations:
-            self.show_view(destinations[action])
-        else:
-            self.show_view("cases")
+        self.show_view(destinations.get(action, "cases"))
+
+    # -- creating a case ---------------------------------------------------
+
+    def new_case_dialog(self) -> None:
+        """Ask where and what to call it, create it, and open it (FR-C1).
+
+        Two questions rather than one save dialog, because a save dialog asks for
+        a *file* and what is being created is a directory — on every platform
+        that dialog then warns about replacing a folder that does not exist yet.
+        """
+        parent = self._choose_directory(self._strings["new_case_where"])
+        if parent is None:
+            return
+
+        name = self._ask_text(
+            self._strings["new_case_name_title"],
+            self._strings["new_case_name_prompt"],
+            self._strings["new_case_default"],
+        )
+        if not name:
+            return
+
+        try:
+            created = create_case(parent, name)
+        except NewCaseError as exc:
+            # The code travels with the message: a name that cannot be used and a
+            # destination that is occupied need different corrections.
+            self._report(
+                self._strings["new_case_failed_title"],
+                self._strings["new_case_failed"].format(exc.message, exc.code.id),
+            )
+            log_event(_log, Event.ERROR_RAISED, where="shell.new_case", error=exc.code.id)
+            return
+
+        self.open_case(created.path)
+        # Straight to the geometry tab: a case with no mesh and no fields exists
+        # to have something imported into it, and leaving the user on a view that
+        # says "no problems found" would hide the one action that comes next.
+        self.show_view("cases")
+
+    def reveal_case_folder(self) -> None:
+        """Show the open case's folder in the desktop's file manager."""
+        if self._case_path is None:
+            self._report(self._strings["no_case_open_title"], self._strings["no_case_open_body"])
+            return
+        if not self._reveal(self._case_path):
+            self._report(
+                self._strings["reveal_failed_title"],
+                self._strings["reveal_failed_body"].format(str(self._case_path)),
+            )
+
+    @staticmethod
+    def _open_in_file_manager(path: Path) -> bool:
+        """Hand a directory to the desktop. Returns whether it was accepted.
+
+        ``QDesktopServices`` rather than a per-platform command, because it is
+        the one call that already knows what each desktop uses and it does not
+        put a user-supplied path anywhere near a shell.
+        """
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        return QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     @Slot(RecentCase)
     def _on_case_opened(self, case: RecentCase) -> None:
@@ -538,17 +607,27 @@ class Shell(QMainWindow):
     def _show_message(self, title: str, body: str) -> None:
         QMessageBox.warning(self, title, body)
 
+    def _ask_for_text(self, title: str, prompt: str, default: str) -> str | None:
+        chosen, accepted = QInputDialog.getText(self, title, prompt, text=default)
+        return chosen.strip() if accepted else None
+
     def set_dialogs(
         self,
         *,
         choose_directory=None,
         report=None,
+        ask_text=None,
+        reveal=None,
     ) -> None:
         """Replace the modal dialogs, for tests and for scripted runs."""
         if choose_directory is not None:
             self._choose_directory = choose_directory
         if report is not None:
             self._report = report
+        if ask_text is not None:
+            self._ask_text = ask_text
+        if reveal is not None:
+            self._reveal = reveal
 
     def open_case(self, path: Path) -> None:
         """Open a case, build its plan, and show it in the Run view.

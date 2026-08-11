@@ -81,6 +81,20 @@ def shell_strings() -> dict[str, str]:
             "A case can be opened, but running one needs a working OpenFOAM. Setup will install it."
         ),
         "run_state_running": _("running"),
+        # Creating a case (FR-C1)
+        "new_case_where": _("Choose where to create the case"),
+        "new_case_name_title": _("New case"),
+        "new_case_name_prompt": _("Name for the new case folder:"),
+        "new_case_default": _("case"),
+        "new_case_failed_title": _("The case could not be created"),
+        "new_case_failed": _("{0}  ({1})"),
+        # Revealing the case folder
+        "no_case_open_title": _("No case is open"),
+        "no_case_open_body": _("Open or create a case first, and this will show you its folder."),
+        "reveal_failed_title": _("The folder could not be opened"),
+        "reveal_failed_body": _(
+            "The case is at {0}, but this computer's file manager could not be started."
+        ),
         # Compositions, kept translatable so their parts can be reordered.
         "nav_item": _("{0}  {1}"),
         "nav_tooltip": _("{0}  ({1})"),
@@ -206,6 +220,40 @@ def preprocessor_strings() -> dict[str, str]:
         **log_pane_strings(),
         "stop_now": _("Stop Now"),
         "case_files": _("Case files"),
+        # Geometry (FR-P3)
+        "geometry_tab": _("Geometry"),
+        "geometry_heading": _("Surfaces"),
+        "geometry_intro": _(
+            "Surfaces in constant/triSurface, which snappyHexMesh meshes around. "
+            "STL and OBJ are used directly; STEP and IGES are converted on import."
+        ),
+        "geometry_import": _("Import Geometry…"),
+        "geometry_none": _("No geometry imported yet."),
+        "geometry_filter": _(
+            "Geometry (*.stl *.obj *.step *.stp *.iges *.igs *.brep);;All files (*)"
+        ),
+        "geometry_choose": _("Choose a geometry file"),
+        # Two entries rather than one, because a surface can legitimately hold a
+        # single triangle and "1 triangles" is the kind of slip that makes an
+        # application look unfinished. Two catalogue keys keep the choice in the
+        # widget where the count is known, and keep both forms translatable.
+        "geometry_summary": _("{0} — {1} triangles"),
+        "geometry_summary_one": _("{0} — 1 triangle"),
+        "geometry_unreadable_row": _("{0} — could not be read"),
+        "geometry_bounds": _("Size {0} x {1} x {2}"),
+        "geometry_regions": _("Regions: {0}"),
+        "geometry_imported": _("Imported {0}."),
+        "geometry_converting": _("Converting {0}. This can take a few minutes."),
+        "geometry_failed": _("{0}  ({1})"),
+        "geometry_binary": _("binary"),
+        "geometry_ascii": _("text"),
+        "geometry_converter": _("CAD converter: {0}"),
+        "geometry_converter_none": _(
+            "No CAD converter found, so STEP and IGES cannot be converted. "
+            "Install Gmsh, or export STL from your CAD package."
+        ),
+        "geometry_remove": _("Remove"),
+        "geometry_removed": _("Removed {0}."),
         "form_tab": _("Form"),
         "form_tab_unavailable": _("Form (not available)"),
         "text_tab": _("Text"),

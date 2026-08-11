@@ -300,16 +300,28 @@ class TestHub:
     def test_no_action_button_is_inert(self, shell: Shell, qtbot) -> None:
         # FR-A1: every target reachable in one click. A button wired to nothing
         # would pass a smoke test while being useless.
+        #
+        # "Did something" means one of two observable things, because the actions
+        # are not all navigation: a button either changes the view, or it asks the
+        # user a question. Cancelling that question deliberately leaves the view
+        # alone, so the *asking* is what has to be asserted — this is the check
+        # that caught New Case and Case Folder falling through to an empty Cases
+        # view, which looked to the user like nothing happening at all.
         asked: list[str] = []
-        shell.set_dialogs(choose_directory=lambda title: asked.append(title))
+        reported: list[str] = []
+        shell.set_dialogs(
+            choose_directory=lambda title: asked.append(title),
+            ask_text=lambda title, _prompt, _default: asked.append(title),
+            report=lambda title, _body: reported.append(title),
+        )
+        interactive = {"open_case", "new_case", "case_folder"}
 
         for key, _primary in shell.hub.ACTIONS:
             shell.show_view("hub")
+            before = len(asked) + len(reported)
             qtbot.mouseClick(shell.hub.action_button(key), Qt.MouseButton.LeftButton)
-            if key == "open_case":
-                # Cancelling deliberately leaves the view alone; what matters is
-                # that the button asked.
-                assert asked, "Open Case did not ask for a folder"
+            if key in interactive:
+                assert len(asked) + len(reported) > before, f"{key} did nothing"
             else:
                 assert shell.current_view != "hub", f"{key} did nothing"
 
@@ -570,3 +582,111 @@ class TestFollowingTheDesktop:
         desktop(Qt.ColorScheme.Dark)
         window.set_theme(ThemeChoice.SYSTEM)
         assert SettingsService(service.path).load().theme is ThemeChoice.SYSTEM
+
+
+class TestNewCase:
+    """FR-C1 — *New Case* creates a case rather than showing an empty panel.
+
+    The behaviour these replace was the one a user reported: the button routed to
+    the Cases view, which with nothing open is blank, so pressing it looked
+    exactly like pressing a button that was not connected.
+    """
+
+    def _wire(self, shell: Shell, tmp_path: Path, name: str = "wing"):
+        reported: list[tuple[str, str]] = []
+        shell.set_dialogs(
+            choose_directory=lambda _title: tmp_path,
+            ask_text=lambda _title, _prompt, _default: name,
+            report=lambda title, body: reported.append((title, body)),
+        )
+        return reported
+
+    def test_creates_and_opens_the_case(self, shell: Shell, tmp_path: Path) -> None:
+        self._wire(shell, tmp_path)
+        shell.new_case_dialog()
+
+        created = tmp_path / "wing"
+        assert (created / "system" / "controlDict").is_file()
+        assert shell.footer.case_text == "wing"
+
+    def test_lands_on_the_view_that_takes_geometry(self, shell: Shell, tmp_path: Path) -> None:
+        # A new case has no mesh and no fields; the next thing to do with it is
+        # import a model, so it must not open on a page that hides that.
+        self._wire(shell, tmp_path)
+        shell.new_case_dialog()
+        assert shell.current_view == "cases"
+
+    def test_cancelling_the_folder_creates_nothing(self, shell: Shell, tmp_path: Path) -> None:
+        shell.set_dialogs(choose_directory=lambda _title: None)
+        shell.new_case_dialog()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_cancelling_the_name_creates_nothing(self, shell: Shell, tmp_path: Path) -> None:
+        shell.set_dialogs(
+            choose_directory=lambda _title: tmp_path,
+            ask_text=lambda _t, _p, _d: None,
+        )
+        shell.new_case_dialog()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_an_empty_name_creates_nothing(self, shell: Shell, tmp_path: Path) -> None:
+        shell.set_dialogs(
+            choose_directory=lambda _title: tmp_path,
+            ask_text=lambda _t, _p, _d: "",
+        )
+        shell.new_case_dialog()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_refusal_is_reported_with_its_code(self, shell: Shell, tmp_path: Path) -> None:
+        (tmp_path / "wing").mkdir()
+        (tmp_path / "wing" / "keep.txt").write_text("mine")
+        reported = self._wire(shell, tmp_path)
+
+        shell.new_case_dialog()
+
+        assert reported, "an occupied destination was not reported"
+        # §9 code in the message, so support starts from a code (E-C13).
+        assert "E-C" in reported[0][1]
+        assert (tmp_path / "wing" / "keep.txt").read_text() == "mine"
+
+    def test_an_invalid_name_is_reported_rather_than_silently_ignored(
+        self, shell: Shell, tmp_path: Path
+    ) -> None:
+        reported = self._wire(shell, tmp_path, name="a/b")
+        shell.new_case_dialog()
+        assert reported
+
+
+class TestCaseFolder:
+    """The Hub's *Case Folder* action."""
+
+    def test_reveals_the_open_case(self, shell: Shell, tmp_path: Path) -> None:
+        revealed: list[Path] = []
+        shell.set_dialogs(
+            choose_directory=lambda _title: tmp_path,
+            ask_text=lambda _t, _p, _d: "wing",
+            reveal=lambda path: revealed.append(path) or True,
+        )
+        shell.new_case_dialog()
+        shell.reveal_case_folder()
+
+        assert revealed == [tmp_path / "wing"]
+
+    def test_says_so_when_no_case_is_open(self, shell: Shell) -> None:
+        reported: list[tuple[str, str]] = []
+        shell.set_dialogs(report=lambda title, body: reported.append((title, body)))
+        shell.reveal_case_folder()
+        assert reported, "an inert button is what this action used to be"
+
+    def test_a_file_manager_that_refuses_is_reported(self, shell: Shell, tmp_path: Path) -> None:
+        reported: list[tuple[str, str]] = []
+        shell.set_dialogs(
+            choose_directory=lambda _title: tmp_path,
+            ask_text=lambda _t, _p, _d: "wing",
+            report=lambda title, body: reported.append((title, body)),
+            reveal=lambda _path: False,
+        )
+        shell.new_case_dialog()
+        shell.reveal_case_folder()
+        # The path is named, so the user can still get there by hand.
+        assert reported and "wing" in reported[-1][1]

@@ -41,6 +41,7 @@ from foamwb.services.validation import validate_case
 from foamwb.ui.theme import Palette
 from foamwb.ui.widgets.bc_matrix import BoundaryMatrixView
 from foamwb.ui.widgets.form_editor import FormEditor
+from foamwb.ui.widgets.geometry_panel import GeometryPanel
 from foamwb.ui.widgets.mesh_panel import MeshPanel
 from foamwb.ui.widgets.text_editor import TextEditor
 
@@ -119,6 +120,16 @@ class PreprocessorView(QWidget):
         self._matrix.apply_requested.connect(self._apply_bulk)
         self._tabs.addTab(self._matrix, labels["bc_tab"])
 
+        # Before meshing, because that is the order the work happens in: a case
+        # built from a CAD model has geometry imported into it and is then meshed
+        # around that geometry (FR-P3).
+        self._geometry = GeometryPanel(self._palette, labels)
+        # New geometry does not change the mesh, but it does change what the next
+        # mesh will be built from — so the utilities are re-offered rather than
+        # left describing the case as it was.
+        self._geometry.geometry_changed.connect(self._refresh_mesh_context)
+        self._tabs.addTab(self._geometry, labels["geometry_tab"])
+
         self._mesh = MeshPanel(self._palette, labels)
         # A utility that rewrote the mesh invalidates everything derived from it:
         # the patch list, the matrix and the findings are all about the old one.
@@ -178,6 +189,7 @@ class PreprocessorView(QWidget):
             leaf.setData(0, Qt.ItemDataRole.UserRole, path)
             groups[group].addChild(leaf)
 
+        self._geometry.set_case(case.path)
         self.refresh_validation()
         self._refresh_mesh_context()
         self._select_first_editable()
@@ -394,6 +406,7 @@ class PreprocessorView(QWidget):
         self._text.set_palette(palette)
         self._matrix.set_palette(palette)
         self._mesh.set_palette(palette)
+        self._geometry.set_palette(palette)
 
         if self._case is None:
             self._show_no_case()
