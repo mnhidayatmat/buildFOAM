@@ -33,9 +33,16 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from foamwb.branding import CASE_METADATA_DIR
 from foamwb.logs import Event, get_logger, log_event
 
-__all__ = ["ParaViewInstall", "ParaViewService", "ensure_foam_stub", "foam_stub_path"]
+__all__ = [
+    "ParaViewInstall",
+    "ParaViewService",
+    "ensure_foam_stub",
+    "foam_stub_path",
+    "mesh_inspection_script",
+]
 
 _log = get_logger("paraview")
 
@@ -75,6 +82,44 @@ def ensure_foam_stub(case: Path) -> Path:
     if not stub.exists():
         stub.touch()
     return stub
+
+
+#: Opens the case showing the mesh only, at the initial state (FR-P8).
+#:
+#: A startup script rather than a command-line flag, because ParaView has no
+#: flag for "show me the mesh": it opens the reader and then shows whatever
+#: field it picks. For inspecting a mesh *before* a run there is no field to
+#: show at all, and the default view of an unrun case is an unhelpful solid
+#: colour with no edges — the one thing the user came to look at.
+_MESH_SCRIPT = """\
+# Generated for mesh inspection. Safe to delete.
+from paraview.simple import *
+
+reader = OpenFOAMReader(registrationName={name!r}, FileName={stub!r})
+reader.MeshRegions = ['internalMesh']
+reader.CellArrays = []          # FR-P8: the mesh, not the solution
+reader.UpdatePipeline()
+
+view = GetActiveViewOrCreate('RenderView')
+display = Show(reader, view)
+display.SetRepresentationType('Surface With Edges')
+ColorBy(display, None)          # a flat surface, so the edges are readable
+
+# The initial state. A case that has never run has only time 0; one that has run
+# would otherwise open at its last written time, which is not the mesh as built.
+scene = GetAnimationScene()
+scene.UpdateAnimationUsingDataTimeSteps()
+times = reader.TimestepValues or [0.0]
+view.ViewTime = min(times) if hasattr(times, '__iter__') else times
+
+ResetCamera()
+Render()
+"""
+
+
+def mesh_inspection_script(case: Path, stub: Path) -> str:
+    """Render the FR-P8 startup script for a case."""
+    return _MESH_SCRIPT.format(name=case.name, stub=str(stub))
 
 
 class ParaViewService:
@@ -198,7 +243,13 @@ class ParaViewService:
 
     # -- launching ---------------------------------------------------------
 
-    def open_case(self, case: Path, *, install: ParaViewInstall | None = None) -> bool:
+    def open_case(
+        self,
+        case: Path,
+        *,
+        install: ParaViewInstall | None = None,
+        mesh_only: bool = False,
+    ) -> bool:
         """Create the stub and open the case in ParaView (FR-V2).
 
         Returns ``False`` when ParaView is not installed, rather than raising:
@@ -215,9 +266,34 @@ class ParaViewService:
             return False
 
         stub = ensure_foam_stub(case)
-        log_event(_log, Event.COMMAND_BEGIN, component="paraview", case=str(case))
-        self._launch([str(install.executable), str(stub)], case)
+        argv = [str(install.executable)]
+        if mesh_only:
+            # FR-P8. The script names the stub itself, so the stub is not also
+            # passed as an argument — ParaView would then open it twice, once
+            # per route, and the user would see two identical pipeline entries.
+            argv.append(f"--script={self._write_mesh_script(case, stub)}")
+        else:
+            argv.append(str(stub))
+
+        log_event(
+            _log, Event.COMMAND_BEGIN, component="paraview", case=str(case), mesh_only=mesh_only
+        )
+        self._launch(argv, case)
         return True
+
+    @staticmethod
+    def _write_mesh_script(case: Path, stub: Path) -> Path:
+        """Put the startup script in our metadata directory, not in the case.
+
+        Anywhere under the case proper would add a file to the definition tree
+        and make a managed case report itself as externally modified (FR-C4)
+        every time someone looked at the mesh.
+        """
+        directory = case / CASE_METADATA_DIR / "paraview"
+        directory.mkdir(parents=True, exist_ok=True)
+        script = directory / "inspect-mesh.py"
+        script.write_text(mesh_inspection_script(case, stub), encoding="utf-8")
+        return script
 
     @staticmethod
     def _spawn(argv: Sequence[str], cwd: Path) -> None:

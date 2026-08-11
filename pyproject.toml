@@ -38,6 +38,11 @@ dependencies = [
   # awkward at the point where it matters most — a long run with many series.
   # It is also a fifth of the size, which NFR-P8's installer budget notices.
   "pyqtgraph>=0.13",
+  # FR-L4's detached ed25519 signature over the content catalog. An audited
+  # implementation rather than a hand-rolled one: this is the boundary that
+  # decides whether unverified content reaches a user's machine, and the wheel
+  # costs about 5 MB against NFR-P8's 250 MB budget — next to PySide6, nothing.
+  "cryptography>=42",
 ]
 
 [project.scripts]
@@ -61,7 +66,11 @@ dev = [
 packages = ["src/foamwb"]
 # The manifest and the form schemas are read at runtime through
 # importlib.resources, so they must be in the wheel (§3.4, §5.4).
-artifacts = ["src/foamwb/data/**/*.json"]
+# Every data file, not only the JSON. The library ships signed payloads and a
+# detached signature beside its catalog; a *.json-only rule would build a wheel
+# whose catalog can never be verified, and the failure would appear only after
+# packaging — never in a source checkout, where the files are simply present.
+artifacts = ["src/foamwb/data/**/*"]
 
 # --------------------------------------------------------------------------
 # Lint / format

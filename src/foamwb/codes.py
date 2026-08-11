@@ -148,6 +148,18 @@ class ErrorCode:
     UNKNOWN_PUBLISHER = _c(
         "E-L03", "Sideloaded package from an unknown publisher", "library/sideloading"
     )
+    PACKAGE_NOT_DATA = _c("E-L04", "Package contains something other than data", "library/not-data")
+    """FR-L3: an executable bit, a build recipe, a symlink, or a path that would
+    escape the destination.
+
+    Distinct from E-L03, which is about *who* published something. A package can
+    come from a perfectly known publisher and still contain a ``Make/``
+    directory — 7 of the shipped OpenFOAM tutorials do — and telling that user
+    their publisher is unknown would name the wrong problem."""
+
+    DESTINATION_EXISTS = _c("E-L05", "A case of that name is already there", "library/destination")
+    """Not an error in the package, and never resolved by overwriting: the
+    directory in the way is the user's own work."""
 
     # -- Post (V) ----------------------------------------------------------
     PARAVIEW_NOT_FOUND = _c("E-V01", "ParaView not found", "postprocessing/paraview-not-found")

@@ -1,0 +1,118 @@
+{
+  "schema": 1,
+  "generated": "2026-08-11",
+  "items": [
+    {
+      "id": "cavity",
+      "name": "Lid-driven cavity",
+      "summary": "The standard first case: laminar flow in a square cavity driven by a moving lid. Small, fast, and the usual way to check that a runtime works.",
+      "category": "Getting started",
+      "solver": "icoFoam",
+      "payload": "cavity.zip",
+      "sha256": "a14cee57f762deced0916d68d44fa4c64a522f7b37c231bf34ad968202bf34c5",
+      "size_bytes": 4507,
+      "versions": [
+        "v2506",
+        "v2512",
+        "v2606"
+      ],
+      "publisher": "OpenCFD Ltd",
+      "license": "GPL-3.0-or-later",
+      "tags": [
+        "laminar",
+        "transient",
+        "tutorial",
+        "2D"
+      ]
+    },
+    {
+      "id": "pitzDaily",
+      "name": "Backward-facing step (pitzDaily)",
+      "summary": "Steady turbulent flow over a backward-facing step. The reference case for separation, and the one whose y+ lands in the buffer layer.",
+      "category": "Turbulence",
+      "solver": "simpleFoam",
+      "payload": "pitzDaily.zip",
+      "sha256": "f1622224e5800bae662708d465fc18ee5747cd7f916b93553cff5c95a4e77a41",
+      "size_bytes": 7529,
+      "versions": [
+        "v2506",
+        "v2512",
+        "v2606"
+      ],
+      "publisher": "OpenCFD Ltd",
+      "license": "GPL-3.0-or-later",
+      "tags": [
+        "RAS",
+        "steady",
+        "separation",
+        "kEpsilon"
+      ]
+    },
+    {
+      "id": "damBreak",
+      "name": "Dam break",
+      "summary": "A collapsing column of water, solved as two phases with a tracked interface. Ships its initial conditions as 0.orig and needs setFields.",
+      "category": "Multiphase",
+      "solver": "interFoam",
+      "payload": "damBreak.zip",
+      "sha256": "11bb4355e020b3e804b0c621ceaa6ad78011a24747d7ec70e5a6dbaa266c4677",
+      "size_bytes": 7364,
+      "versions": [
+        "v2506",
+        "v2512",
+        "v2606"
+      ],
+      "publisher": "OpenCFD Ltd",
+      "license": "GPL-3.0-or-later",
+      "tags": [
+        "VOF",
+        "transient",
+        "free surface"
+      ]
+    },
+    {
+      "id": "TJunction",
+      "name": "T-junction",
+      "summary": "Transient turbulent flow splitting through a T-shaped duct, with pressure boundary conditions on both outlets.",
+      "category": "Turbulence",
+      "solver": "pimpleFoam",
+      "payload": "TJunction.zip",
+      "sha256": "aebabab6b5978ce597fd3cdbf02a2014f181c9c4a9b5af9e0cfefdd7dbd226dc",
+      "size_bytes": 7626,
+      "versions": [
+        "v2506",
+        "v2512",
+        "v2606"
+      ],
+      "publisher": "OpenCFD Ltd",
+      "license": "GPL-3.0-or-later",
+      "tags": [
+        "RAS",
+        "transient",
+        "internal flow"
+      ]
+    },
+    {
+      "id": "cylinder",
+      "name": "Flow around a cylinder",
+      "summary": "Potential flow around a cylinder, with an analytical solution to compare against. Useful for checking a workflow end to end.",
+      "category": "Getting started",
+      "solver": "potentialFoam",
+      "payload": "cylinder.zip",
+      "sha256": "f8932a55e5d26d4a8cbd18b281ff10e229e6480b3678bf1c61abcc7dbbb2ac0c",
+      "size_bytes": 5919,
+      "versions": [
+        "v2506",
+        "v2512",
+        "v2606"
+      ],
+      "publisher": "OpenCFD Ltd",
+      "license": "GPL-3.0-or-later",
+      "tags": [
+        "potential flow",
+        "validation",
+        "analytical"
+      ]
+    }
+  ]
+}

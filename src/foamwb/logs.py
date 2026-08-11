@@ -80,6 +80,8 @@ class Event(StrEnum):
     RUN_STOP_REQUESTED = "run.stop.requested"
     RUN_DIVERGED = "run.diverged"
     RUN_END = "run.end"
+    LIBRARY_INSTALL = "library.install"
+    LIBRARY_REJECTED = "library.rejected"
 
     # Shell navigation. Useful in a diagnostics bundle: "what was on screen when
     # it failed?" is the first question triage asks.
