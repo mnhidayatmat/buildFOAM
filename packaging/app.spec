@@ -74,7 +74,13 @@ EXCLUDED_OTHER = ["tkinter", "matplotlib", "IPython", "pytest", "setuptools"]
 
 #: Everything read at runtime through importlib.resources: the runtime manifest,
 #: the form schemas, the turbulence data, the signed content library, the guide.
-DATA = [(str(ROOT / "src" / "foamwb" / "data"), "foamwb/data")]
+DATA = [
+    (str(ROOT / "src" / "foamwb" / "data"), "foamwb/data"),
+    # §13.5: several redistributed components require attribution, and a notice
+    # that only exists in the repository does not travel with the binary.
+    (str(ROOT / "LICENSE"), "."),
+    (str(ROOT / "THIRD-PARTY-NOTICES"), "."),
+]
 
 
 a = Analysis(

@@ -159,6 +159,12 @@ class Shell(QMainWindow):
         left.setStretchFactor(0, 3)
         left.setStretchFactor(1, 2)
         left.setChildrenCollapsible(False)
+        # Opening sizes, not just stretch factors: stretch decides how *extra*
+        # space is shared on resize, so without this the two panels start from
+        # their size hints and the procedure — the thing §7.2 asks the user to
+        # read down — opens already scrolled, above a property table that is
+        # empty until they pick a step from it.
+        left.setSizes([520, 200])
 
         row = QSplitter(Qt.Orientation.Horizontal)
         self._left = left

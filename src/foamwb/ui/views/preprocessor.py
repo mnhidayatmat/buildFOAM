@@ -46,6 +46,12 @@ from foamwb.ui.widgets.text_editor import TextEditor
 
 __all__ = ["PreprocessorView"]
 
+#: The narrowest the file tree, the editors and the validation panel may become,
+#: in pixels. Sized to what each has to show rather than shared out evenly: the
+#: tree needs to spell out a path, the editors hold the form, and the validation
+#: column only ever carries wrapping text.
+_PANE_MINIMUMS = (180, 400, 190)
+
 
 class PreprocessorView(QWidget):
     """Edit a case's dictionaries, with validation beside them."""
@@ -78,6 +84,13 @@ class PreprocessorView(QWidget):
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 5)
         splitter.setStretchFactor(2, 2)
+        # Without a floor the file tree is handed whatever is left over and
+        # elides its own contents — ``polyMesh/boundary``, the one entry whose
+        # name says which directory it came from, renders as ``polyMesh/…`` and
+        # stops distinguishing itself from the file above it.
+        for index, minimum in enumerate(_PANE_MINIMUMS):
+            splitter.widget(index).setMinimumWidth(minimum)
+        splitter.setChildrenCollapsible(False)
         layout.addWidget(splitter, stretch=1)
 
         self._show_no_case()
@@ -312,6 +325,11 @@ class PreprocessorView(QWidget):
     def refresh_validation(self) -> None:
         """Re-run validation and repopulate the panel (FR-C3)."""
         self._findings.clear()
+        # An empty findings list is an empty bordered box a third of the panel
+        # tall, which reads as something that failed to load rather than as a
+        # case with nothing wrong with it. The summary line already carries the
+        # verdict, so the list only appears when it has something to list.
+        self._findings.setVisible(False)
         if self._case is None:
             return
 
@@ -322,6 +340,8 @@ class PreprocessorView(QWidget):
             self._summary.setText(self._labels["no_findings"])
             self._summary.setStyleSheet(f"color: {self._palette.ready};")
             return
+
+        self._findings.setVisible(True)
 
         blocking = len(validation.blocking)
         self._summary.setText(

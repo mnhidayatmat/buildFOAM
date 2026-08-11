@@ -47,6 +47,21 @@ __all__ = ["FormEditor"]
 #: whole style.
 _YES, _NO = "yes", "no"
 
+#: How wide a value control is allowed to get, in pixels.
+#:
+#: ``ExpandingFieldsGrow`` on its own stretches every line edit to the full width
+#: of the panel while leaving each combo box at its own content width, so the
+#: column of controls ends on a different x for almost every row — the single
+#: most visible thing wrong with the form. Capping the width fixes both halves at
+#: once: the controls line up, and a field holding ``0`` stops being six inches
+#: wide, which invites a much longer value than the key accepts.
+_FIELD_WIDTH = 360
+
+#: How wide the form itself is allowed to get. A form that tracks the window
+#: puts its label in one corner and its value in another on a wide display, and
+#: runs help text out to a line length no one reads comfortably.
+_FORM_WIDTH = 760
+
 
 class FormEditor(QWidget):
     """Renders a schema over a document and writes edits back through it."""
@@ -98,10 +113,16 @@ class FormEditor(QWidget):
         self._errors.clear()
 
         page = QWidget()
+        page.setMaximumWidth(_FORM_WIDTH)
         form = QFormLayout(page)
         form.setContentsMargins(4, 4, 4, 4)
         form.setSpacing(8)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        # Below roughly the width of the label column plus a field, a row that
+        # keeps them side by side can only do it by clipping one of them. Wrapping
+        # puts the label above its control instead, which is how the form stays
+        # usable in a narrow window rather than growing a horizontal scroll bar.
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         for field in schema.fields:
             if not field.applies_to(document):
@@ -172,6 +193,7 @@ class FormEditor(QWidget):
 
         if field.kind is FieldKind.ENUM and field.values:
             combo = QComboBox()
+            _size(combo)
             combo.addItems(field.values)
             if value is not None and value not in field.values:
                 # The file already holds something the enum does not list. It is
@@ -184,6 +206,7 @@ class FormEditor(QWidget):
             return combo
 
         line = QLineEdit(value or "")
+        _size(line)
         line.setAccessibleName(field.title)
         line.textChanged.connect(lambda _t, key=field.key: self._on_edited(key))
         return line
@@ -313,6 +336,17 @@ class FormEditor(QWidget):
         # a window that has not been shown, so this would report "" for reasons
         # having nothing to do with whether there are unknown keys.
         return self._unknown.text() if self._unknown.isVisibleTo(self) else ""
+
+
+def _size(editor: QWidget) -> None:
+    """Give a value control the one width every other value control has.
+
+    Expanding *and* capped, so the controls reach the same right edge instead of
+    each stopping at its own content width, and stop there instead of tracking
+    the panel.
+    """
+    editor.setMaximumWidth(_FIELD_WIDTH)
+    editor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
 
 def _as_bool(value: str | None) -> bool:

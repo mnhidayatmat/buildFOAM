@@ -183,3 +183,76 @@ class TestStylesheet:
         # after it, and Qt reports nothing.
         css = stylesheet(palette)
         assert css.count("{") == css.count("}")
+
+
+#: Widget classes the sheet deliberately does not name, and why.
+#:
+#: These are containers and layout devices with nothing of their own to paint —
+#: they show whatever their children and the blanket ``QWidget`` rule put on
+#: screen — so a rule for them would style nothing.
+_NEEDS_NO_RULE = {
+    "QApplication",
+    "QDialog",
+    "QFileDialog",
+    "QFrame",
+    "QGridLayout",
+    "QHBoxLayout",
+    "QFormLayout",
+    "QMainWindow",
+    "QMessageBox",
+    "QStackedWidget",
+    "QVBoxLayout",
+    "QWidget",
+    "QListWidgetItem",
+    "QTreeWidgetItem",
+    "QTableWidgetItem",
+    "QActionGroup",
+    "QAction",
+    "QSizePolicy",
+    "QKeySequence",
+    "QShortcut",
+}
+
+
+class TestWidgetCoverage:
+    """Every widget class a view uses is styled from the palette.
+
+    Qt renders anything the sheet does not mention in the *native* style, whose
+    defaults are chosen for a light window: a near-white scroll bar track, a
+    near-white header, a text field outlined by a hairline meant to sit on white.
+    On the dark palette those are wrong in a way no contrast check catches,
+    because they never consult the palette at all — the sweep in
+    ``test_contrast_sweep.py`` resolves colours *from the style sheet*, so a
+    widget the sheet says nothing about is a widget it cannot judge.
+
+    This is the guard that failed silently before: nineteen tree widgets, ten
+    line edits and six tab widgets had accumulated across the views without one
+    rule between them, and nothing said so until someone opened the application
+    in dark mode.
+    """
+
+    def _classes_used(self) -> set[str]:
+        source_root = Path(__file__).resolve().parent.parent / "src" / "foamwb" / "ui"
+        found: set[str] = set()
+        for path in source_root.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                # The import is what states the dependency; a bare Name would
+                # also match strings and attribute chains that are not widgets.
+                if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+                    "PySide6.QtWidgets"
+                ):
+                    found.update(alias.name for alias in node.names)
+        return {name for name in found if name.startswith("Q")}
+
+    def test_every_widget_class_in_use_is_styled(self) -> None:
+        css = stylesheet(LIGHT)
+        unstyled = sorted(
+            name
+            for name in self._classes_used() - _NEEDS_NO_RULE
+            if not re.search(rf"\b{name}\b", css)
+        )
+        assert not unstyled, (
+            "these widget classes are used in a view but have no rule in "
+            f"theme.stylesheet(), so Qt will draw them in the native style: {unstyled}"
+        )

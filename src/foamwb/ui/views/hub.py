@@ -31,6 +31,9 @@ from foamwb.services.runtime import RuntimeStatus
 
 __all__ = ["HubView"]
 
+#: How many recent cases the list shows before it starts scrolling.
+_MAX_VISIBLE_RECENTS = 6
+
 
 class HubView(QWidget):
     """Landing view: recent cases, then large launch targets."""
@@ -74,7 +77,11 @@ class HubView(QWidget):
         self._recent_list = QListWidget()
         self._recent_list.setAccessibleName(labels["recent_cases"])
         self._recent_list.itemActivated.connect(self._on_item_activated)
-        layout.addWidget(self._recent_list, stretch=1)
+        # Sized to the cases it holds rather than to the window. Stretching left
+        # three rows at the top of a bordered box most of the screen tall, which
+        # reads as a list still loading the rest of itself — and it pushed the
+        # actions down to the bottom edge, away from what they follow on from.
+        layout.addWidget(self._recent_list)
 
         self._empty_hint = QLabel(labels["no_recent_cases"])
         self._empty_hint.setProperty("role", "muted")
@@ -82,9 +89,12 @@ class HubView(QWidget):
         # Takes the list's stretch when the list is hidden, aligned to the top so
         # the hint sits under its heading instead of drifting into the middle of
         # an empty pane.
-        layout.addWidget(self._empty_hint, stretch=1, alignment=Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(self._empty_hint, alignment=Qt.AlignmentFlag.AlignTop)
 
         layout.addWidget(self._build_actions(labels))
+        # The slack goes below the actions, so everything on the page stays
+        # gathered under the heading it belongs to at any window height.
+        layout.addStretch(1)
 
         self.set_recent_cases([])
 
@@ -144,6 +154,23 @@ class HubView(QWidget):
         has_cases = bool(cases)
         self._recent_list.setVisible(has_cases)
         self._empty_hint.setVisible(not has_cases)
+        if has_cases:
+            self._fit_to_rows(len(cases))
+
+    def _fit_to_rows(self, count: int) -> None:
+        """Make the list exactly as tall as the rows it holds.
+
+        A list widget reports a fixed default size hint whatever it contains, so
+        left alone it reserves the same height for one recent case as for eight.
+        Past :data:`_MAX_VISIBLE_RECENTS` it stops growing and scrolls instead,
+        which is what keeps a long history from pushing the actions off screen.
+        """
+        row_height = self._recent_list.sizeHintForRow(0)
+        if row_height <= 0:
+            return
+        visible = min(count, _MAX_VISIBLE_RECENTS)
+        frame = 2 * self._recent_list.frameWidth()
+        self._recent_list.setFixedHeight(visible * row_height + frame)
 
     def _describe(self, case: RecentCase) -> str:
         parts = [case.name]

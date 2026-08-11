@@ -79,6 +79,11 @@ CHECKS: tuple[Check, ...] = (
         why="a literal does not change with the theme, so it is wrong in one of them",
     ),
     Check(
+        name="§13.5 third-party notices are current",
+        argv=("python", "tools/notices.py", "--check"),
+        why="shipping someone's code without their notice is easy to avoid and easy to commit",
+    ),
+    Check(
         name="FR-G2 every error code has a guide page",
         argv=("python", "tools/check_guide_links.py"),
         why="M7's exit criterion: a link that goes nowhere teaches distrust",

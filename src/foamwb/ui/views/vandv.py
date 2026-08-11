@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -64,6 +65,18 @@ from foamwb.services.yplus import Verdict, audit, read_y_plus
 from foamwb.ui.theme import Palette
 
 __all__ = ["VandVView"]
+
+#: How wide a value control in the consequences column may get, in pixels.
+_FIELD_WIDTH = 300
+
+#: The narrowest each of the three columns may become, in pixels.
+#:
+#: The questionnaire gets the largest floor because a check box cannot wrap or
+#: elide its own text — Qt simply cuts it off — so "Resolve the turbulent
+#: structures, not just their average" either fits or is silently truncated into
+#: a different question. The other two hold wrapping text and can be narrowed
+#: without losing anything.
+_PANE_MINIMUMS = (400, 220, 260)
 
 #: The questionnaire, in §6.9.1's order. Data so the widget and the answers
 #: cannot drift apart, and so a new question is one entry rather than three edits.
@@ -136,7 +149,27 @@ class VandVView(QWidget):
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 3)
         splitter.setStretchFactor(2, 3)
-        return splitter
+        # A splitter refuses to shrink a pane below its minimum size hint, and
+        # three panes that each ask for what they would *like* add up to more
+        # than the window can give — so the third one was drawn past the right
+        # edge and could only be read by scrolling sideways, while the first two
+        # cut their text off mid-word. Stating a floor each pane can actually
+        # live at is what keeps all three legible.
+        for index, minimum in enumerate(_PANE_MINIMUMS):
+            splitter.widget(index).setMinimumWidth(minimum)
+        splitter.setChildrenCollapsible(False)
+
+        # Below the sum of those floors the columns cannot all fit, and the two
+        # honest answers are to scroll or to clip. Scrolling is the one that
+        # still shows the user everything: the window's 960px minimum (§7.1) with
+        # the workflow panel open is exactly that case, and Ctrl+B closing the
+        # panel is what makes it fit again.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(splitter)
+        return scroll
 
     def _build_questionnaire(self, labels: dict[str, str]) -> QWidget:
         page = QWidget()
@@ -191,6 +224,12 @@ class VandVView(QWidget):
         self._shortlist = QListWidget()
         self._shortlist.setAccessibleName(labels["vv_shortlist"])
         self._shortlist.setWordWrap(True)
+        # Word wrap alone is not enough: while a horizontal scroll bar is
+        # available, the list lays each entry out at its natural width and offers
+        # to scroll to the rest, so the reason a model is "known to fail" was
+        # being cut off mid-sentence. Refusing the scroll bar is what makes the
+        # wrap take effect.
+        self._shortlist.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._shortlist.currentItemChanged.connect(self._on_model_selected)
         column.addWidget(self._shortlist, stretch=1)
 
@@ -216,8 +255,13 @@ class VandVView(QWidget):
 
         form = QFormLayout()
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        # "Kinematic viscosity (m²/s)" beside its control needs more width than
+        # this pane gets on a small display; wrapping the label above the control
+        # is what lets the row narrow instead of clipping.
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self._treatment = QComboBox()
+        self._treatment.setMaximumWidth(_FIELD_WIDTH)
         self._treatment.currentIndexChanged.connect(self._recompute_numbers)
         form.addRow(labels["vv_wall_treatment"], self._treatment)
 
@@ -610,6 +654,13 @@ def _spin(value: float, minimum: float, maximum: float, decimals: int) -> QDoubl
     box.setDecimals(decimals)
     box.setRange(minimum, maximum)
     box.setValue(value)
+    # A spin box asks for whatever width its widest possible value needs, and
+    # kinematic viscosity is quoted to ten decimals — so left alone it demands
+    # about 180px and drags the whole column past the edge of the window. It is
+    # capped instead: the value is still readable, and the panel can be as narrow
+    # as the window makes it.
+    box.setMaximumWidth(_FIELD_WIDTH)
+    box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     return box
 
 
