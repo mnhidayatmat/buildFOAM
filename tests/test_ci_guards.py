@@ -31,10 +31,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 @pytest.mark.parametrize(
     "script",
     [
+        # Every guard preflight runs, listed here too: preflight can be skipped
+        # and a test cannot. Each encodes a promise no type system holds —
+        # NFR-M1 layering, NFR-M5 renaming, NFR-M3 version data, NFR-A5
+        # translation, NFR-A2/A4 theming, NFR-R5 offline, FR-G2 guide links.
         "check_no_qt.py",
         "check_branding.py",
         "check_version_literals.py",
         "check_translatable.py",
+        "check_palette_only.py",
+        "check_offline.py",
+        "check_guide_links.py",
     ],
 )
 def test_guard_passes_on_the_current_tree(script: str) -> None:
