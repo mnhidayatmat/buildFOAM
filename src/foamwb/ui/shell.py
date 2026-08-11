@@ -54,10 +54,12 @@ from foamwb.ui.footer import StatusFooter
 from foamwb.ui.navrail import NAV_ITEMS
 from foamwb.ui.theme import Palette, stylesheet
 from foamwb.ui.views.hub import HubView
+from foamwb.ui.views.initial import InitialConditionsView
 from foamwb.ui.views.library import LibraryView
 from foamwb.ui.views.placeholder import PlaceholderView
 from foamwb.ui.views.post import PostView
 from foamwb.ui.views.preprocessor import PreprocessorView
+from foamwb.ui.views.regions import RegionsView
 from foamwb.ui.views.run import RunView
 from foamwb.ui.views.vandv import VandVView
 from foamwb.ui.widgets.property_panel import PropertyPanel
@@ -202,6 +204,16 @@ class Shell(QMainWindow):
         self._views["vv"] = self._vandv
         self._stack.addWidget(self._vandv)
 
+        self._regions = RegionsView(self._palette, {**self._strings, **strings.regions_strings()})
+        self._views["regions"] = self._regions
+        self._stack.addWidget(self._regions)
+
+        self._initial = InitialConditionsView(
+            self._palette, {**self._strings, **strings.initial_strings()}
+        )
+        self._views["initial"] = self._initial
+        self._stack.addWidget(self._initial)
+
         self._post = PostView(self._palette, {**self._strings, **strings.post_strings()})
         self._views["post"] = self._post
         self._stack.addWidget(self._post)
@@ -220,6 +232,9 @@ class Shell(QMainWindow):
 
     def _connect(self) -> None:
         self._workflow.step_selected.connect(self._on_step_selected)
+        # A patch type decides which boundary conditions are legal, so the
+        # matrix has to be re-read rather than left showing the old rules.
+        self._regions.patches_changed.connect(self._reload_case)
         self._workflow.action_requested.connect(self._on_step_action)
         self._workflow.return_to_mesh.connect(self._on_return_to_mesh)
         self._footer.setup_requested.connect(lambda: self.show_view("setup"))
@@ -292,6 +307,11 @@ class Shell(QMainWindow):
         # splitter would not be.
         collapse = QShortcut(QKeySequence("Ctrl+B"), self)
         collapse.activated.connect(self.toggle_workflow_panel)
+
+    def _reload_case(self) -> None:
+        """Re-read the open case after something changed it underneath us."""
+        if self._case_path is not None:
+            self.open_case(self._case_path)
 
     def toggle_workflow_panel(self) -> None:
         self._left.setVisible(not self._left.isVisibleTo(self))
@@ -540,6 +560,8 @@ class Shell(QMainWindow):
             dictionary_name=self._turbulence_dictionary(),
         )
         self._post.set_context(self._session, case.path)
+        self._regions.set_case(case.path)
+        self._initial.set_case(case.path)
         # New cases land beside the one just opened, which is where a user who
         # keeps their work in one folder expects to find them.
         self._library.set_destination(case.path.parent)
@@ -568,6 +590,14 @@ class Shell(QMainWindow):
     @property
     def properties(self) -> PropertyPanel:
         return self._properties
+
+    @property
+    def regions(self) -> RegionsView:
+        return self._regions
+
+    @property
+    def initial(self) -> InitialConditionsView:
+        return self._initial
 
     @property
     def hub(self) -> HubView:

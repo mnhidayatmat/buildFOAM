@@ -472,6 +472,55 @@ def workflow_strings() -> dict[str, str]:
     }
 
 
+def regions_strings() -> dict[str, str]:
+    """The patch editor (FR-P4, E-C04)."""
+    return {
+        "regions_heading": _("Regions and patches"),
+        "regions_intro": _(
+            "The named surfaces of the mesh. A patch's type decides which "
+            "boundary conditions are legal on it, so changing one changes the "
+            "physics as well as the label."
+        ),
+        "no_mesh_yet": _("This case has no mesh yet. Generate one to see its patches."),
+        "col_patch": _("Patch"),
+        "col_type": _("Type"),
+        "col_faces": _("Faces"),
+        "col_groups": _("Groups"),
+        "faces_count": _("{0}"),
+        "apply_type": _("Change type"),
+        "consequences_title": _("Changing {0} from {1} to {2}"),
+        "fields_must_follow": _("These fields would need their condition on {0} changed:"),
+        "fields_list": _("{0} — each to {1}"),
+        "change_applied": _("{0} is now {1}."),
+        "change_refused": _("{0}"),
+        "no_change": _("{0} is already {1}."),
+        "constrained_note": _("Set by the geometry — its condition is not a choice."),
+        "cancel": _("Cancel"),
+    }
+
+
+def initial_strings() -> dict[str, str]:
+    """The initial-conditions editor (FR-P3)."""
+    return {
+        "initial_heading": _("Initial conditions"),
+        "initial_intro": _(
+            "The values every cell starts from, before the first time step. "
+            "Boundary values are set in Boundary conditions."
+        ),
+        "no_fields": _("This case has no initial-condition files."),
+        "col_field": _("Field"),
+        "col_internal": _("Internal field"),
+        "col_dimensions": _("Units"),
+        "nonuniform_note": _("Set per cell — edit this one in the Text tab."),
+        "unreadable_field": _("This file could not be read. Open it in the Text tab."),
+        "field_updated": _("{0} now starts at {1}."),
+        "field_unchanged": _("{0} is unchanged."),
+        "vector_hint": _("Three components, e.g. (1 0 0)."),
+        "scalar_hint": _("A single number."),
+        "source_note": _("From {0}"),
+    }
+
+
 def library_strings() -> dict[str, str]:
     """The content library (§7.8, FR-L1 to FR-L5).
 

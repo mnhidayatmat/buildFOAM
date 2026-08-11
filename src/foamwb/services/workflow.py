@@ -134,7 +134,7 @@ STEPS: tuple[Step, ...] = (
     Step("case.files", parent="case", view="cases"),
     Step("mesh", kind=StepKind.GROUP, phase=Phase.MESH),
     Step("mesh.settings", parent="mesh", view="cases", phase=Phase.MESH),
-    Step("mesh.regions", parent="mesh", view="cases", phase=Phase.MESH),
+    Step("mesh.regions", parent="mesh", view="regions", phase=Phase.MESH),
     Step(
         "mesh.generate",
         parent="mesh",
@@ -146,7 +146,7 @@ STEPS: tuple[Step, ...] = (
     Step("conditions", kind=StepKind.GROUP),
     Step("conditions.type", parent="conditions", view="vv"),
     Step("conditions.basic", parent="conditions", view="cases"),
-    Step("conditions.initial", parent="conditions", view="cases"),
+    Step("conditions.initial", parent="conditions", view="initial"),
     Step("conditions.boundary", parent="conditions", view="cases"),
     Step("conditions.control", parent="conditions", view="cases"),
     Step("conditions.output", parent="conditions", view="cases"),
