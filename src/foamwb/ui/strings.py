@@ -394,6 +394,84 @@ def runtime_banner_message(state: str, code: str | None) -> str:
     return f"{text}  ({code})" if code else text
 
 
+def workflow_strings() -> dict[str, str]:
+    """The workflow navigation panel and the property panel (§7.2).
+
+    Step names are the ones a CFD course uses, not the ones OpenFOAM's file
+    layout uses. "Boundary conditions" rather than "0/", "Solution control"
+    rather than "fvSolution" — the file is named underneath, in the property
+    panel, so the user learns the mapping instead of having to know it first.
+    """
+    return {
+        "workflow": _("Workflow"),
+        "properties": _("Properties"),
+        "case_tree": _("Case"),
+        "messages": _("Messages"),
+        # The steps, in order.
+        "step.case": _("Case"),
+        "step.case.open": _("Open or create"),
+        "step.case.files": _("Case files"),
+        "step.mesh": _("Mesh"),
+        "step.mesh.settings": _("Mesh settings"),
+        "step.mesh.regions": _("Regions and patches"),
+        "step.mesh.generate": _("Generate mesh"),
+        "step.materials": _("Material properties"),
+        "step.conditions": _("Conditions"),
+        "step.conditions.type": _("Analysis type"),
+        "step.conditions.basic": _("Basic settings"),
+        "step.conditions.initial": _("Initial conditions"),
+        "step.conditions.boundary": _("Boundary conditions"),
+        "step.conditions.control": _("Solution control"),
+        "step.conditions.output": _("Output"),
+        "step.verify": _("Check setup"),
+        "step.execute": _("Execute"),
+        "step.results": _("Results"),
+        "step.vandv": _("Verification"),
+        "step.library": _("Library"),
+        "step.guide": _("Guide"),
+        # What each step is for, shown when it is selected. One sentence.
+        "hint.case.open": _("Open an existing OpenFOAM case, or install one from the Library."),
+        "hint.case.files": _("Every file in the case, as it is on disk."),
+        "hint.mesh.settings": _("Block structure and refinement, from blockMeshDict."),
+        "hint.mesh.regions": _("The named patches the boundary conditions attach to."),
+        "hint.mesh.generate": _("Run blockMesh, then checkMesh to see whether it is usable."),
+        "hint.materials": _("Viscosity and density, and the turbulence model."),
+        "hint.conditions.type": _("Steady or transient, and which turbulence model."),
+        "hint.conditions.basic": _("End time, time step and how often results are written."),
+        "hint.conditions.initial": _("The starting field values, from the 0 directory."),
+        "hint.conditions.boundary": _("Every patch and every field, as a matrix."),
+        "hint.conditions.control": _("Discretisation schemes and linear solvers."),
+        "hint.conditions.output": _("Residuals, forces and probes written during the run."),
+        "hint.verify": _("Check the case is complete and consistent before running it."),
+        "hint.execute": _("Run the solver, with the log and residuals live."),
+        "hint.results": _("Open the result in ParaView, or run a post utility."),
+        "hint.vandv": _("Turbulence model choice, y+ audit and mesh study."),
+        # Step states (NFR-A2: never colour alone).
+        "state.done": _("done"),
+        "state.available": _("ready"),
+        "state.blocked": _("not yet"),
+        "state.locked": _("locked"),
+        "next_step": _("Next: {0}"),
+        "nothing_outstanding": _("Every required step is done."),
+        "return_to_mesh": _("Return to mesh"),
+        "locked_explains": _("The mesh is built. Return to mesh to change it."),
+        "blocked_no_case": _("Open a case first."),
+        "blocked_no_mesh": _("Generate the mesh first."),
+        # The property panel — scFLOW's Parameter / Value / Unit.
+        "column_parameter": _("Parameter"),
+        "column_value": _("Value"),
+        "column_unit": _("Unit"),
+        "no_properties": _("Select a step to see its settings."),
+        "property_source": _("From {0}"),
+        "step_accessible": _("{0}, {1}"),
+        # Compositions of this panel's own, rather than borrowed from the Run
+        # view: a shared key would tie two unrelated screens together and a
+        # translator would have to make one phrasing serve both.
+        "step_row": _("{0}  {1}"),
+        "group_row": _("{0}   ·   {1}"),
+    }
+
+
 def library_strings() -> dict[str, str]:
     """The content library (§7.8, FR-L1 to FR-L5).
 

@@ -23,9 +23,11 @@ from foamwb.codes import ErrorCode
 from foamwb.services.recents import RecentCase
 from foamwb.services.runtime import RuntimeKind, RuntimeState, RuntimeStatus
 from foamwb.services.settings import SettingsService, ThemeChoice
+from foamwb.services.workflow import STEPS
 from foamwb.ui.navrail import NAV_ITEMS
 from foamwb.ui.shell import Shell
 from foamwb.ui.theme import DARK, LIGHT
+from foamwb.ui.widgets.workflow_nav import STATE_GLYPHS
 
 READY = RuntimeStatus(state=RuntimeState.READY, kind=RuntimeKind.NATIVE)
 MISSING = RuntimeStatus(state=RuntimeState.MISSING, reason=ErrorCode.NOT_PROVISIONED)
@@ -82,73 +84,124 @@ class TestLayout:
             shell.show_view("nope")
 
 
-class TestNavigation:
-    def test_selecting_a_rail_item_switches_the_view(self, shell: Shell) -> None:
-        shell.rail.view_selected.emit("library")
+class TestWorkflowNavigation:
+    """§7.2 — the left panel is an ordered procedure, not a set of destinations.
+
+    Replaces the nav-rail tests. The rail answered "where do I go?", which is
+    only useful to someone who already knows the workflow; these assert the
+    question P1 actually has, which is "what do I do next?".
+    """
+
+    def test_the_panel_lists_every_step_in_order(self, shell: Shell) -> None:
+        assert shell.workflow.rows == [step.id for step in STEPS]
+
+    def test_selecting_a_step_switches_the_view(self, shell: Shell) -> None:
+        shell._on_step_selected("library")
         assert shell.current_view == "library"
 
-    def test_clicking_a_rail_button_switches_the_view(self, shell: Shell, qtbot) -> None:
-        button = shell.rail.button("guide")
-        qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
-        assert shell.current_view == "guide"
+    def test_a_group_header_is_not_a_destination(self, shell: Shell) -> None:
+        """Clicking a header must not navigate: it names a phase, not a page."""
+        before = shell.current_view
+        shell.workflow._on_clicked(shell.workflow._items["conditions"], 0)
+        assert shell.current_view == before
 
-    def test_rail_and_stack_never_disagree(self, shell: Shell) -> None:
-        for item in NAV_ITEMS:
-            shell.show_view(item.key)
-            assert shell.rail.current == item.key
+    def test_steps_needing_a_case_are_blocked_until_there_is_one(self, shell: Shell) -> None:
+        assert not shell.workflow.is_actionable("conditions.basic")
+        assert shell.workflow.is_actionable("case.open")
 
-    def test_selection_is_exclusive(self, shell: Shell) -> None:
-        shell.show_view("run")
-        checked = [i.key for i in NAV_ITEMS if shell.rail.button(i.key).isChecked()]
-        assert checked == ["run"]
+    def test_a_blocked_step_stays_visible_and_says_why(self, shell: Shell) -> None:
+        """§7.9 rule 3 — hiding it would conceal what the procedure even is."""
+        assert shell.workflow.text_of("execute")
+        shell.workflow.select("execute")
+        assert shell.workflow.hint_text
 
-    def test_every_view_has_a_distinct_keyboard_shortcut(self) -> None:
-        # NFR-A1: full keyboard navigation. M7's exit criterion is a keyboard-only
-        # pass over every task, which is impossible if a view can only be reached
-        # by clicking.
-        shortcuts = [item.shortcut for item in NAV_ITEMS]
-        assert len(shortcuts) == len(set(shortcuts))
-        assert all(s.startswith("Ctrl+") for s in shortcuts)
+    def test_state_is_carried_in_words_not_only_appearance(self, shell: Shell) -> None:
+        """NFR-A2 — greying out is invisible to a screen reader."""
+        described = shell.workflow.state_text_of("execute")
+        assert "not yet" in described.lower()
 
-    def test_every_rail_button_is_keyboard_focusable(self, shell: Shell) -> None:
-        for item in NAV_ITEMS:
-            button = shell.rail.button(item.key)
-            assert button.focusPolicy() == Qt.FocusPolicy.StrongFocus
+    def test_every_state_has_a_distinct_glyph(self) -> None:
+        assert len(set(STATE_GLYPHS.values())) == len(STATE_GLYPHS)
+
+    def test_the_panel_says_what_to_do_next(self, shell: Shell) -> None:
+        assert "Open or create" in shell.workflow.next_text
+
+    def test_the_panel_can_be_collapsed_from_the_keyboard(self, shell: Shell) -> None:
+        """NFR-A1 — a splitter that needs dragging is not keyboard-operable."""
+        shell.toggle_workflow_panel()
+        shell.toggle_workflow_panel()
+        assert shell.workflow.rows
 
 
-class TestNavRailCollapse:
-    """§7.1 — collapsible to icons only."""
+class TestTheWorkflowFollowsTheCase:
+    def test_opening_a_case_unblocks_the_setup_steps(self, shell: Shell, tmp_path) -> None:
+        shell.open_case(_cavity(tmp_path))
+        assert shell.workflow.is_actionable("conditions.basic")
 
-    def test_starts_expanded_with_labels(self, shell: Shell) -> None:
-        assert not shell.rail.collapsed
-        assert "Library" in shell.rail.button("library").text()
+    def test_an_unmeshed_case_cannot_be_executed(self, shell: Shell, tmp_path) -> None:
+        shell.open_case(_cavity(tmp_path))
+        assert not shell.workflow.is_actionable("execute")
 
-    def test_collapsing_hides_labels_but_keeps_glyphs(self, shell: Shell) -> None:
-        shell.rail.set_collapsed(True)
-        text = shell.rail.button("library").text()
-        assert "Library" not in text
-        assert text.strip()
+    def test_the_next_step_is_the_mesh(self, shell: Shell, tmp_path) -> None:
+        shell.open_case(_cavity(tmp_path))
+        assert "Generate mesh" in shell.workflow.next_text
 
-    def test_collapsing_narrows_the_rail(self, shell: Shell) -> None:
-        expanded = shell.rail.width()
-        shell.rail.set_collapsed(True)
-        assert shell.rail.width() < expanded
+    def test_a_meshed_case_offers_the_way_back(self, shell: Shell, tmp_path) -> None:
+        """scFLOW's *Return to Prepare Parts*, and the reason it exists."""
+        case = _cavity(tmp_path)
+        (case / "constant" / "polyMesh").mkdir(parents=True)
+        shell.open_case(case)
+        assert shell.workflow.offers_return_to_mesh
 
-    def test_a_collapsed_rail_is_still_self_describing(self, shell: Shell) -> None:
-        # The label is gone from the face of the button, so the tooltip and the
-        # accessible name have to carry it — otherwise collapsing the rail would
-        # make the app unusable with a screen reader.
-        shell.rail.set_collapsed(True)
-        button = shell.rail.button("library")
-        assert "Library" in button.toolTip()
-        assert button.accessibleName() == "Library"
+    def test_returning_to_the_mesh_unlocks_it(self, shell: Shell, tmp_path) -> None:
+        case = _cavity(tmp_path)
+        (case / "constant" / "polyMesh").mkdir(parents=True)
+        shell.open_case(case)
+        assert not shell.workflow.is_actionable("mesh.settings")
+        shell._on_return_to_mesh()
+        assert shell.workflow.is_actionable("mesh.settings")
 
-    def test_toggle_round_trips(self, shell: Shell) -> None:
-        original = shell.rail.button("library").text()
-        shell.rail.toggle_collapsed()
-        shell.rail.toggle_collapsed()
-        assert shell.rail.button("library").text() == original
-        assert not shell.rail.collapsed
+
+class TestThePropertyPanel:
+    """§7.4 — scFLOW's Parameter / Value / Unit table."""
+
+    def test_it_has_the_three_columns(self, shell: Shell) -> None:
+        assert shell.properties.column_titles == ["Parameter", "Value", "Unit"]
+
+    def test_it_is_empty_until_a_step_is_chosen(self, shell: Shell) -> None:
+        assert shell.properties.row_count == 0
+
+    def test_choosing_a_step_fills_it_from_the_case(self, shell: Shell, tmp_path) -> None:
+        shell.open_case(_cavity(tmp_path))
+        shell._on_step_selected("conditions.basic")
+        assert shell.properties.row_count > 0
+
+    def test_it_shows_the_unit_where_there_is_one(self, shell: Shell, tmp_path) -> None:
+        """A dimension is part of the value's meaning in OpenFOAM."""
+        shell.open_case(_cavity(tmp_path))
+        shell._on_step_selected("conditions.basic")
+        rows = [r for g in shell.properties.groups for r in g.rows]
+        assert any(r.unit == "s" for r in rows if r.path == "endTime")
+
+    def test_it_names_the_file_the_settings_came_from(self, shell: Shell, tmp_path) -> None:
+        """D4 — teach OpenFOAM, not the interface."""
+        shell.open_case(_cavity(tmp_path))
+        shell._on_step_selected("conditions.basic")
+        assert any(g.source == "system/controlDict" for g in shell.properties.groups)
+
+
+def _cavity(tmp_path):
+    """A minimal runnable-looking case, without needing a real OpenFOAM."""
+    case = tmp_path / "cavity"
+    (case / "system").mkdir(parents=True)
+    (case / "constant").mkdir()
+    (case / "0").mkdir()
+    (case / "system" / "controlDict").write_text(
+        "FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\n"
+        "application     icoFoam;\nstartTime       0;\nendTime         0.5;\n"
+        "deltaT          0.005;\nwriteControl    timeStep;\nwriteInterval   20;\n"
+    )
+    return case
 
 
 class TestStatusFooter:

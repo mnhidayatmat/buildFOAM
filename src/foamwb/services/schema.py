@@ -75,6 +75,14 @@ class Field:
     kind: FieldKind
     label: str = ""
     help: str = ""
+    unit: str = ""
+    """The physical unit, where the entry has one.
+
+    Its own attribute rather than part of the label because the property panel
+    gives it its own column: in OpenFOAM a dimension is part of a value's
+    meaning — ``nu`` is kinematic, not dynamic — and a unit folded into a label
+    cannot be lined up, sorted, or noticed by its absence."""
+
     required: bool = False
     values: tuple[str, ...] = ()
     minimum: float | None = None
@@ -232,6 +240,7 @@ def _parse_field(raw: dict[str, Any]) -> Field:
         kind=kind,
         label=raw.get("label", ""),
         help=raw.get("help", ""),
+        unit=raw.get("unit", ""),
         required=bool(raw.get("required", False)),
         values=tuple(raw.get("values", ())),
         minimum=raw.get("minimum"),

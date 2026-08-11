@@ -20,14 +20,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Slot
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
-    QHBoxLayout,
     QMainWindow,
     QMessageBox,
+    QSplitter,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -37,6 +37,7 @@ from foamwb.branding import APP_DISPLAY_NAME
 from foamwb.codes import ErrorCode
 from foamwb.logs import Event, get_logger, log_event
 from foamwb.services.case import CaseError, CaseService
+from foamwb.services.properties import groups_for_step
 from foamwb.services.recents import RecentCase
 from foamwb.services.run import build_plan
 from foamwb.services.runtime import (
@@ -46,10 +47,11 @@ from foamwb.services.runtime import (
     load_manifest,
 )
 from foamwb.services.settings import DEFAULT_THEME, SettingsService, ThemeChoice
+from foamwb.services.workflow import StepState, WorkflowModel, step_by_id
 from foamwb.ui import strings
 from foamwb.ui.appearance import resolve_palette
 from foamwb.ui.footer import StatusFooter
-from foamwb.ui.navrail import NAV_ITEMS, NavRail
+from foamwb.ui.navrail import NAV_ITEMS
 from foamwb.ui.theme import Palette, stylesheet
 from foamwb.ui.views.hub import HubView
 from foamwb.ui.views.library import LibraryView
@@ -58,8 +60,20 @@ from foamwb.ui.views.post import PostView
 from foamwb.ui.views.preprocessor import PreprocessorView
 from foamwb.ui.views.run import RunView
 from foamwb.ui.views.vandv import VandVView
+from foamwb.ui.widgets.property_panel import PropertyPanel
+from foamwb.ui.widgets.workflow_nav import WorkflowNav
 
 __all__ = ["Shell"]
+
+
+def _is_time(name: str) -> bool:
+    """Whether a directory name is a written time. Results, not case structure."""
+    try:
+        float(name)
+    except ValueError:
+        return False
+    return True
+
 
 _log = get_logger("ui.shell")
 
@@ -92,17 +106,22 @@ class Shell(QMainWindow):
         self.setWindowTitle(APP_DISPLAY_NAME)
         self.setMinimumSize(960, 640)
 
-        self._rail = NavRail(
-            strings.nav_labels(),
-            item_format=self._strings["nav_item"],
-            tooltip_format=self._strings["nav_tooltip"],
-        )
+        # scFLOW's Navigation panel in place of the old destination rail: an
+        # ordered procedure the user reads down, rather than a set of places
+        # they must already know the order of (§7.2, D1).
+        workflow_labels = {**self._strings, **strings.workflow_strings()}
+        self._workflow = WorkflowNav(palette, workflow_labels)
+        self._properties = PropertyPanel(palette, workflow_labels)
         self._stack = QStackedWidget()
         self._footer = StatusFooter(palette)
 
         self._cases = CaseService()
         self._runtime: RuntimeStatus | None = None
         self._session = None
+        self._case_path: Path | None = None
+        """The open case. Held here because the workflow list and the property
+        panel are both drawn from evidence on disk, and the shell is the only
+        thing that knows which case that is."""
 
         # How the user is asked for a folder, and how they are told something
         # went wrong. Injectable because a modal dialog blocks its thread until a
@@ -125,12 +144,26 @@ class Shell(QMainWindow):
         upper_layout.setContentsMargins(0, 0, 0, 0)
         upper_layout.addWidget(self._stack)
 
-        row = QWidget()
-        row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(0)
-        row_layout.addWidget(self._rail)
-        row_layout.addWidget(upper, stretch=1)
+        # Navigation above, properties below — scFLOW's left column. A splitter
+        # rather than fixed heights, because the property table for fvSolution is
+        # far longer than the one for controlDict and a fixed split would make
+        # one of them permanently cramped.
+        self._current_view: str | None = None
+        left = QSplitter(Qt.Orientation.Vertical)
+        left.addWidget(self._workflow)
+        left.addWidget(self._properties)
+        left.setStretchFactor(0, 3)
+        left.setStretchFactor(1, 2)
+        left.setChildrenCollapsible(False)
+
+        row = QSplitter(Qt.Orientation.Horizontal)
+        self._left = left
+        row.addWidget(left)
+        row.addWidget(upper)
+        row.setStretchFactor(0, 0)
+        row.setStretchFactor(1, 1)
+        row.setSizes([300, 900])
+        row.setChildrenCollapsible(False)
 
         body.addWidget(row, stretch=1)
         body.addWidget(self._footer)
@@ -186,7 +219,9 @@ class Shell(QMainWindow):
             self._stack.addWidget(view)
 
     def _connect(self) -> None:
-        self._rail.view_selected.connect(self.show_view)
+        self._workflow.step_selected.connect(self._on_step_selected)
+        self._workflow.action_requested.connect(self._on_step_action)
+        self._workflow.return_to_mesh.connect(self._on_return_to_mesh)
         self._footer.setup_requested.connect(lambda: self.show_view("setup"))
         self._footer.theme_requested.connect(self.set_theme)
         self._hub.setup_requested.connect(lambda: self.show_view("setup"))
@@ -201,12 +236,65 @@ class Shell(QMainWindow):
         )
         self._run.run_finished.connect(self._on_run_finished)
 
+    # -- workflow ----------------------------------------------------------
+
+    @Slot(str)
+    def _on_step_selected(self, step_id: str) -> None:
+        """Show the view a step maps onto, and its settings beside it."""
+        step = step_by_id(step_id)
+        if step is None:
+            return
+        if step.view:
+            self.show_view(step.view)
+        self._properties.set_groups(groups_for_step(self._case_path, step_id))
+
+    @Slot(str)
+    def _on_step_action(self, step_id: str) -> None:
+        """Steps that run something rather than opening a page."""
+        if step_id in {"mesh.generate", "execute"}:
+            self.show_view("run")
+        elif step_id == "verify":
+            self.show_view("cases")
+
+    def _on_return_to_mesh(self) -> None:
+        """scFLOW's *Return to Prepare Parts*.
+
+        The lock is a statement about where the user is, not a restriction on
+        what they may do — so getting back costs one click and nothing else.
+        """
+        self._workflow.model.set_state("mesh.settings", StepState.AVAILABLE)
+        self._workflow.model.set_state("mesh.regions", StepState.AVAILABLE)
+        self._workflow.refresh()
+        self._workflow.select("mesh.settings")
+        self.show_view("cases")
+
+    def refresh_workflow(self) -> None:
+        """Re-read the evidence the workflow list is drawn from."""
+        case = self._case_path
+        self._workflow.set_model(
+            WorkflowModel(
+                case=case,
+                has_mesh=bool(case and (case / "constant" / "polyMesh").is_dir()),
+                has_results=bool(
+                    case
+                    and any(
+                        p.is_dir() and p.name not in {"0"} and _is_time(p.name)
+                        for p in case.iterdir()
+                    )
+                ),
+            )
+        )
+
     def _install_shortcuts(self) -> None:
-        # Ctrl+B collapses the rail, matching the convention users already have
-        # from editors. NFR-A1 requires the whole shell to be operable without a
-        # mouse, and a rail that could only be collapsed by clicking would not be.
+        # Ctrl+B hides the workflow column, matching the convention users already
+        # have from editors. NFR-A1 requires the whole shell to be operable
+        # without a mouse, and a panel that could only be collapsed by dragging a
+        # splitter would not be.
         collapse = QShortcut(QKeySequence("Ctrl+B"), self)
-        collapse.activated.connect(self._rail.toggle_collapsed)
+        collapse.activated.connect(self.toggle_workflow_panel)
+
+    def toggle_workflow_panel(self) -> None:
+        self._left.setVisible(not self._left.isVisibleTo(self))
 
     # -- navigation --------------------------------------------------------
 
@@ -217,12 +305,12 @@ class Shell(QMainWindow):
         if view is None:
             raise KeyError(f"Unknown view: {key!r}")
         self._stack.setCurrentWidget(view)
-        self._rail.select(key)
+        self._current_view = key
         log_event(_log, Event.UI_VIEW_SHOWN, view=key)
 
     @property
     def current_view(self) -> str | None:
-        return self._rail.current
+        return self._current_view
 
     # -- state -------------------------------------------------------------
 
@@ -381,6 +469,9 @@ class Shell(QMainWindow):
         self.open_case(case.path)
 
     def _on_run_finished(self, _result) -> None:
+        # A finished run creates time directories and possibly a mesh, both of
+        # which the workflow list reports. Re-read rather than assume.
+        self.refresh_workflow()
         # Back to idle whatever the outcome. The footer reports *what the
         # application is doing*, and the Run view already says how it went — two
         # places claiming to own the verdict is how they end up disagreeing.
@@ -439,7 +530,9 @@ class Shell(QMainWindow):
             self._report(self._strings["cannot_plan_title"], str(exc))
             return
 
+        self._case_path = case.path
         self.set_active_case(case.name)
+        self.refresh_workflow()
         self._preprocessor.set_case(case)
         self._vandv.set_case(
             case,
@@ -469,8 +562,12 @@ class Shell(QMainWindow):
         return self._footer
 
     @property
-    def rail(self) -> NavRail:
-        return self._rail
+    def workflow(self) -> WorkflowNav:
+        return self._workflow
+
+    @property
+    def properties(self) -> PropertyPanel:
+        return self._properties
 
     @property
     def hub(self) -> HubView:
