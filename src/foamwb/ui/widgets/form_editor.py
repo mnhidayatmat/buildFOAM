@@ -150,6 +150,18 @@ class FormEditor(QWidget):
         self._show_unknown_keys(schema, document)
         self._save_button.setEnabled(False)
 
+    def set_palette(self, palette: Palette) -> None:
+        """Adopt a new palette, recolouring the per-field error messages (NFR-A4).
+
+        The messages are the one thing here that carries an inline colour, and a
+        validation error still showing the previous theme's red is the case where
+        being wrong matters most — it is the text telling the user why they
+        cannot save.
+        """
+        self._palette = palette
+        for error in self._errors.values():
+            error.setStyleSheet(f"color: {palette.broken};")
+
     def _make_editor(self, field: Field, value: str | None) -> QWidget:
         if field.kind is FieldKind.BOOL:
             box = QCheckBox()

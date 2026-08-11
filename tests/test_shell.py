@@ -22,6 +22,7 @@ from foamwb.branding import APP_DISPLAY_NAME
 from foamwb.codes import ErrorCode
 from foamwb.services.recents import RecentCase
 from foamwb.services.runtime import RuntimeKind, RuntimeState, RuntimeStatus
+from foamwb.services.settings import SettingsService, ThemeChoice
 from foamwb.ui.navrail import NAV_ITEMS
 from foamwb.ui.shell import Shell
 from foamwb.ui.theme import DARK, LIGHT
@@ -377,3 +378,142 @@ class TestThemes:
         qtbot.addWidget(window)
         window.set_runtime_status(BROKEN)
         assert palette.broken.lower() in window.footer._indicator.styleSheet().lower()
+
+
+@pytest.fixture
+def themed(qtbot, qapp, tmp_path):
+    """A shell whose preferences go to a temporary file, never the user's own.
+
+    The application style sheet is global, so it is restored afterwards — a test
+    that left the window dark would leak into whatever ran next, and the failure
+    would appear in an unrelated module.
+    """
+    service = SettingsService(tmp_path / "config.json")
+    window = Shell(LIGHT, settings=service, theme=ThemeChoice.LIGHT)
+    qtbot.addWidget(window)
+    original = qapp.styleSheet()
+    yield window, service
+    qapp.setStyleSheet(original)
+
+
+class TestThemeToggle:
+    """NFR-A4's control: Light, Dark, or follow the desktop."""
+
+    def test_opens_in_light(self, themed) -> None:
+        window, _service = themed
+        assert window.theme is ThemeChoice.LIGHT
+        assert window.palette_in_use is LIGHT
+        assert window.footer.theme_choice is ThemeChoice.LIGHT
+
+    def test_the_footer_names_the_theme_in_force(self, themed) -> None:
+        window, _service = themed
+        window.set_theme(ThemeChoice.DARK)
+        # Not colour alone, and not a glyph alone: the control says which theme
+        # is in force in words (NFR-A2).
+        assert "Dark" in window.footer.theme_text
+
+    def test_choosing_dark_repaints_the_window(self, qapp, themed) -> None:
+        window, _service = themed
+        window.set_theme(ThemeChoice.DARK)
+        assert window.palette_in_use is DARK
+        assert DARK.bg.lower() in qapp.styleSheet().lower()
+        assert LIGHT.bg.lower() not in qapp.styleSheet().lower()
+
+    def test_the_choice_is_persisted(self, themed) -> None:
+        window, service = themed
+        window.set_theme(ThemeChoice.DARK)
+        # Read back through a fresh service: a value cached in memory would pass
+        # a weaker assertion and still be gone after a restart.
+        assert SettingsService(service.path).load().theme is ThemeChoice.DARK
+
+    def test_the_menu_drives_it(self, themed) -> None:
+        # The path a user actually takes. Calling set_theme directly would leave
+        # the footer's menu untested, which is the whole control.
+        window, _service = themed
+        window.footer.choose_theme(ThemeChoice.DARK)
+        assert window.theme is ThemeChoice.DARK
+        assert window.palette_in_use is DARK
+
+    def test_widgets_that_hold_a_palette_are_given_the_new_one(self, themed) -> None:
+        # The style sheet does not reach item brushes, syntax highlighting or the
+        # plot canvas, so each of these keeps its own copy and would otherwise
+        # stay on the previous theme.
+        window, _service = themed
+        window.set_theme(ThemeChoice.DARK)
+        for widget in (
+            window.footer,
+            window.run_view,
+            window.run_view.log,
+            window.run_view.residuals,
+            window.run_view.strip,
+            window.preprocessor,
+            window.preprocessor.form,
+            window.preprocessor.text,
+        ):
+            assert widget._palette is DARK, type(widget).__name__
+
+    def test_the_footer_repaints_rather_than_keeping_the_old_red(self, themed) -> None:
+        # §7.9 rule 4: the footer is the part that must still be telling the
+        # truth when everything else has gone wrong, so a stale colour here is
+        # worse than a stale colour anywhere else.
+        window, _service = themed
+        window.set_runtime_status(BROKEN)
+        window.set_theme(ThemeChoice.DARK)
+        assert DARK.broken.lower() in window.footer._indicator.styleSheet().lower()
+
+    def test_a_running_plan_is_not_reset_by_a_theme_change(self, themed) -> None:
+        # Rebuilding the strip would be the simple implementation and would put
+        # every stage back to pending in front of someone watching a run.
+        from foamwb.services.run import RunPlan, Stage, StageState
+
+        window, _service = themed
+        plan = RunPlan(case=Path("/tmp/case"), stages=(Stage("blockMesh", ("blockMesh",)),))
+        window.run_view.strip.set_plan(plan)
+        window.run_view.strip.set_state("blockMesh", StageState.RUNNING)
+
+        window.set_theme(ThemeChoice.DARK)
+        assert window.run_view.strip.state_of("blockMesh") is StageState.RUNNING
+
+
+class TestFollowingTheDesktop:
+    """SYSTEM is a standing instruction, not a one-off reading."""
+
+    @pytest.fixture
+    def desktop(self, qapp, monkeypatch):
+        def report(scheme: Qt.ColorScheme) -> None:
+            monkeypatch.setattr(type(qapp.styleHints()), "colorScheme", lambda _self: scheme)
+
+        return report
+
+    def test_system_takes_the_desktop_colour(self, themed, desktop) -> None:
+        window, _service = themed
+        desktop(Qt.ColorScheme.Dark)
+        window.set_theme(ThemeChoice.SYSTEM)
+        assert window.palette_in_use is DARK
+
+    def test_a_desktop_switch_is_followed(self, themed, desktop) -> None:
+        window, _service = themed
+        desktop(Qt.ColorScheme.Light)
+        window.set_theme(ThemeChoice.SYSTEM)
+        assert window.palette_in_use is LIGHT
+
+        desktop(Qt.ColorScheme.Dark)
+        window.refresh_system_theme()
+        assert window.palette_in_use is DARK
+
+    def test_a_desktop_switch_does_not_override_an_explicit_choice(self, themed, desktop) -> None:
+        # The setting would be worthless otherwise: a user who chose Light
+        # precisely because their desktop is dark would be overruled at sunset.
+        window, _service = themed
+        window.set_theme(ThemeChoice.LIGHT)
+        desktop(Qt.ColorScheme.Dark)
+        window.refresh_system_theme()
+        assert window.palette_in_use is LIGHT
+
+    def test_the_stored_choice_stays_system_not_the_colour_it_resolved_to(
+        self, themed, desktop
+    ) -> None:
+        window, service = themed
+        desktop(Qt.ColorScheme.Dark)
+        window.set_theme(ThemeChoice.SYSTEM)
+        assert SettingsService(service.path).load().theme is ThemeChoice.SYSTEM

@@ -155,6 +155,17 @@ class LogPane(QWidget):
             self._labels["log_status"].format(self._total_lines, len(self._error_lines))
         )
 
+    def set_palette(self, palette: Palette) -> None:
+        """Adopt a new palette (NFR-A4).
+
+        Nothing to repaint: every colour in this pane comes from the application
+        style sheet, which the shell has already replaced. The method exists so
+        the shell can hand a palette to every widget it owns without keeping a
+        list of which ones happen to need it — a list that would go stale the
+        first time one of them started using a token.
+        """
+        self._palette = palette
+
     # -- navigation --------------------------------------------------------
 
     def find_next(self) -> bool:

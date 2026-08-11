@@ -246,6 +246,25 @@ class TextEditor(QWidget):
 
     # -- state -------------------------------------------------------------
 
+    def set_palette(self, palette: Palette) -> None:
+        """Adopt a new palette and re-highlight the buffer (NFR-A4).
+
+        The highlighter bakes its formats at construction — that is what keeps
+        ``highlightBlock`` cheap on a file with thousands of lines — so a theme
+        change has to build a new one rather than update the old one in place.
+        The document is detached from the outgoing highlighter first, because two
+        highlighters on one document both run, and the loser paints last.
+
+        The buffer's contents and undo history are untouched: this is a colour
+        change, and a user who loses unsaved edits to it would rightly never
+        touch the control again.
+        """
+        self._palette = palette
+        self._highlighter.setDocument(None)
+        self._highlighter = DictionaryHighlighter(self._view.document(), palette)
+        self._highlighter.rehighlight()
+        self._update_state()
+
     def _on_changed(self) -> None:
         self._update_state()
 

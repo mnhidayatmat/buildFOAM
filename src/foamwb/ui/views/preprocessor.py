@@ -340,6 +340,26 @@ class PreprocessorView(QWidget):
         self._summary.setText(self._labels["no_case_open_hint"])
         self._summary.setStyleSheet(f"color: {self._palette.text_muted};")
 
+    def set_palette(self, palette: Palette) -> None:
+        """Adopt a new palette across the tabs and the validation panel (NFR-A4).
+
+        The panel is re-derived from the case rather than recoloured item by
+        item, because its colours *mean* something — red is a finding that blocks
+        the run — and re-running validation is the only way to be certain the
+        colours and the findings still agree. It costs a re-parse of the case,
+        which is a price worth paying at the rate a person changes theme.
+        """
+        self._palette = palette
+        self._form.set_palette(palette)
+        self._text.set_palette(palette)
+        self._matrix.set_palette(palette)
+        self._mesh.set_palette(palette)
+
+        if self._case is None:
+            self._show_no_case()
+        else:
+            self.refresh_validation()
+
     # -- for tests ---------------------------------------------------------
 
     @property

@@ -84,6 +84,17 @@ class StageStrip(QFrame):
             chip.deleteLater()
         self._chips.clear()
 
+    def set_palette(self, palette: Palette) -> None:
+        """Adopt a new palette, keeping every chip's state (NFR-A4).
+
+        Rebuilding the strip from the plan would be simpler and wrong: the chips
+        carry live state from a run in progress, and a theme change must not
+        reset a strip back to all-pending in front of someone watching it.
+        """
+        self._palette = palette
+        for chip in self._chips.values():
+            chip.set_palette(palette)
+
     # -- for tests ---------------------------------------------------------
 
     @property
@@ -129,6 +140,10 @@ class _StageChip(QFrame):
         # The whole chip announces itself, so a screen reader reads "solve,
         # running" rather than a bullet followed by a word.
         self.setAccessibleName(self._labels["stage_accessible"].format(self._name, label))
+
+    def set_palette(self, palette: Palette) -> None:
+        self._palette = palette
+        self.set_state(self._state)
 
     def _colour_for(self, state: StageState) -> str:
         return {

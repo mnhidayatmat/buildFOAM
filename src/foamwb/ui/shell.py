@@ -5,6 +5,12 @@ holds no case, runs no command and parses no dictionary. Everything it displays
 arrives through a setter, which is what lets the whole window be driven from a
 test without a runtime, a case, or a display.
 
+The one piece of *state* it does own is the appearance setting (NFR-A4), and for
+the same reason it owns the runtime status: the theme is global, it belongs to no
+view, and one setter driving both the stored preference and every widget's
+palette is what keeps the window from disagreeing with its own footer about which
+theme is in force.
+
 The stack is built from :data:`~foamwb.ui.navrail.NAV_ITEMS`, the same list that
 builds the rail and the shortcuts, so a view cannot exist in one and be missing
 from another.
@@ -17,6 +23,7 @@ from pathlib import Path
 from PySide6.QtCore import Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QHBoxLayout,
     QMainWindow,
@@ -33,10 +40,12 @@ from foamwb.services.case import CaseError, CaseService
 from foamwb.services.recents import RecentCase
 from foamwb.services.run import build_plan
 from foamwb.services.runtime import RuntimeManager, RuntimeState, RuntimeStatus
+from foamwb.services.settings import DEFAULT_THEME, SettingsService, ThemeChoice
 from foamwb.ui import strings
+from foamwb.ui.appearance import resolve_palette
 from foamwb.ui.footer import StatusFooter
 from foamwb.ui.navrail import NAV_ITEMS, NavRail
-from foamwb.ui.theme import Palette
+from foamwb.ui.theme import Palette, stylesheet
 from foamwb.ui.views.hub import HubView
 from foamwb.ui.views.placeholder import PlaceholderView
 from foamwb.ui.views.preprocessor import PreprocessorView
@@ -50,11 +59,27 @@ _log = get_logger("ui.shell")
 class Shell(QMainWindow):
     """Main window."""
 
-    def __init__(self, palette: Palette, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        palette: Palette,
+        parent: QWidget | None = None,
+        *,
+        settings: SettingsService | None = None,
+        theme: ThemeChoice = DEFAULT_THEME,
+    ) -> None:
+        """``palette`` must already be the one ``theme`` resolves to.
+
+        Both are passed rather than derived here because the entry point has to
+        style the application *before* the window exists (NFR-P1), and computing
+        the palette twice invites the two answers to differ — which would show up
+        as a window that does not match its own footer.
+        """
         super().__init__(parent)
         self._strings = strings.shell_strings()
         self._placeholders = strings.view_placeholders()
         self._palette = palette
+        self._settings = settings or SettingsService()
+        self._theme = ThemeChoice(theme)
 
         self.setWindowTitle(APP_DISPLAY_NAME)
         self.setMinimumSize(960, 640)
@@ -112,6 +137,7 @@ class Shell(QMainWindow):
             RuntimeStatus(state=RuntimeState.MISSING, reason=ErrorCode.NOT_PROVISIONED)
         )
         self.set_openfoam_version(None)
+        self._footer.set_theme_choice(self._theme)
         self.show_view("hub")
 
     # -- construction ------------------------------------------------------
@@ -142,6 +168,7 @@ class Shell(QMainWindow):
     def _connect(self) -> None:
         self._rail.view_selected.connect(self.show_view)
         self._footer.setup_requested.connect(lambda: self.show_view("setup"))
+        self._footer.theme_requested.connect(self.set_theme)
         self._hub.setup_requested.connect(lambda: self.show_view("setup"))
         self._hub.action_triggered.connect(self._on_hub_action)
         self._hub.case_opened.connect(self._on_case_opened)
@@ -222,6 +249,84 @@ class Shell(QMainWindow):
 
     def set_recent_cases(self, cases: list[RecentCase]) -> None:
         self._hub.set_recent_cases(cases)
+
+    # -- appearance --------------------------------------------------------
+
+    @property
+    def theme(self) -> ThemeChoice:
+        """The user's choice, which is not necessarily what is painted.
+
+        ``SYSTEM`` resolves to a light or a dark palette depending on the
+        desktop, and the answer can change while the window is open — so the
+        choice and the palette are separate facts and both are kept.
+        """
+        return self._theme
+
+    @property
+    def palette_in_use(self) -> Palette:
+        """What is actually painted right now.
+
+        Named to stay clear of ``QWidget.palette()``, which is Qt's own platform
+        palette and a different thing entirely — this application paints from a
+        style sheet, so the two are not interchangeable.
+        """
+        return self._palette
+
+    @Slot(str)
+    def set_theme(self, choice: str | ThemeChoice) -> None:
+        """Adopt a theme, persist it, and repaint (NFR-A4).
+
+        Applied first and saved second, deliberately. The window is the thing the
+        user asked to change; a preferences file that could not be written is
+        worth a log line but is not a reason to refuse them the theme they just
+        picked, and :meth:`SettingsService.save` reports rather than raises for
+        exactly that reason.
+
+        Accepts the plain string the footer's signal carries, because a Qt signal
+        cannot carry an enum without registering a metatype — and the coercion
+        here is also the validation, so a value from anywhere else is checked too.
+        """
+        self._theme = ThemeChoice(choice)
+        self._footer.set_theme_choice(self._theme)
+        self._repaint()
+        self._settings.set_theme(self._theme)
+        log_event(_log, Event.APP_THEME, theme=self._theme.value)
+
+    def refresh_system_theme(self, _scheme: object = None) -> None:
+        """Repaint if — and only if — the user asked to follow the desktop.
+
+        Connected unconditionally to Qt's scheme-changed signal, because the
+        alternative is connecting and disconnecting as the choice changes, and a
+        missed disconnection would silently override an explicit Light or Dark
+        the next time the desktop switched.
+
+        The scheme the signal carries is ignored and re-queried, so this is also
+        the method to call when *something else* changed — and taking the
+        argument at all is what lets it be connected as a bound method, which Qt
+        disconnects automatically when the window is destroyed. A lambda would
+        outlive it and fire into a deleted object.
+        """
+        if self._theme is ThemeChoice.SYSTEM:
+            self._repaint()
+
+    def _repaint(self) -> None:
+        """Resolve the current choice and push the palette through the window.
+
+        The style sheet covers most of it, but not all: item brushes, syntax
+        highlighting and the plot canvas are set per widget and would otherwise
+        keep the previous theme's colours. So each widget that holds a palette is
+        handed the new one and re-renders what it had already drawn.
+        """
+        palette = resolve_palette(self._theme)
+        self._palette = palette
+
+        application = QApplication.instance()
+        if application is not None:
+            application.setStyleSheet(stylesheet(palette))
+
+        self._footer.set_palette(palette)
+        self._run.set_palette(palette)
+        self._preprocessor.set_palette(palette)
 
     # -- handlers ----------------------------------------------------------
 

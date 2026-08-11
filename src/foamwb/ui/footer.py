@@ -10,15 +10,23 @@ that way (FR-R2).
 The runtime indicator is a button, not a label: §7.1 requires clicking it to jump
 to Setup. That also makes it keyboard-reachable, which a label would not be
 (NFR-A1).
+
+The theme selector lives here for the same reason the runtime indicator does: it
+is global, it belongs to no view, and the footer is the only chrome visible from
+all of them. It is a menu rather than a button that cycles, because cycling three
+states means a user who overshoots has to go round again, and because a menu can
+show which one is currently in force — which a cycling button cannot.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QToolButton, QWidget
+from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QMenu, QToolButton, QWidget
 
 from foamwb.services.runtime import RuntimeStatus
-from foamwb.ui.theme import Palette, status_glyph
+from foamwb.services.settings import DEFAULT_THEME, ThemeChoice
+from foamwb.ui.theme import Palette, status_glyph, theme_glyph
 
 __all__ = ["StatusFooter"]
 
@@ -29,10 +37,22 @@ class StatusFooter(QFrame):
     setup_requested = Signal()
     """Emitted when the user activates the runtime indicator (§7.1)."""
 
+    theme_requested = Signal(str)
+    """A :class:`~foamwb.services.settings.ThemeChoice` value the user picked.
+
+    A request, not a change: the footer does not repaint anything or write any
+    preference. The shell owns both, so the window and the stored setting cannot
+    end up disagreeing about which theme is in force.
+    """
+
     def __init__(self, palette: Palette, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("statusFooter")
         self._palette = palette
+        # The last status rendered, so a theme change can repaint it. Without
+        # this the indicator would keep the old theme's colour until the next
+        # detection — which on a ready runtime is never.
+        self._status: RuntimeStatus | None = None
 
         self._indicator = QToolButton()
         self._indicator.setObjectName("runtimeIndicator")
@@ -56,6 +76,8 @@ class StatusFooter(QFrame):
         layout.addWidget(self._case)
         layout.addStretch(1)
         layout.addWidget(self._run_state)
+        layout.addWidget(self._separator())
+        layout.addWidget(self._build_theme_selector())
 
         self.set_case(None)
         self.set_run_state(None)
@@ -64,6 +86,66 @@ class StatusFooter(QFrame):
         dot = QLabel("·")
         dot.setProperty("role", "muted")
         return dot
+
+    def _build_theme_selector(self) -> QToolButton:
+        """The appearance menu: Light, Dark, or follow the desktop (NFR-A4)."""
+        self._theme = ThemeChoice(DEFAULT_THEME)
+        self._theme_labels = {
+            ThemeChoice.LIGHT: self.tr("Light"),
+            ThemeChoice.DARK: self.tr("Dark"),
+            ThemeChoice.SYSTEM: self.tr("System"),
+        }
+
+        button = QToolButton()
+        button.setObjectName("themeSelector")
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        button.setToolTip(self.tr("Appearance"))
+        # InstantPopup rather than a click-then-hold: there is no default action
+        # a single click could mean, and a button that silently did nothing on
+        # click would read as broken.
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+
+        menu = QMenu(button)
+        # Exclusive, so the menu states a fact — exactly one theme is in force —
+        # rather than offering three independent switches.
+        group = QActionGroup(menu)
+        group.setExclusive(True)
+
+        self._theme_actions: dict[ThemeChoice, QAction] = {}
+        for choice, label in self._theme_labels.items():
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.triggered.connect(
+                lambda _checked=False, c=choice: self.theme_requested.emit(c.value)
+            )
+            group.addAction(action)
+            self._theme_actions[choice] = action
+
+        button.setMenu(menu)
+        self._theme_button = button
+        self._theme_menu = menu
+        self.set_theme_choice(self._theme)
+        return button
+
+    def set_theme_choice(self, choice: ThemeChoice) -> None:
+        """Show which theme is in force. Does not emit :attr:`theme_requested`.
+
+        Silent for the same reason :meth:`~foamwb.ui.navrail.NavRail.select` is:
+        this is how the *shell* tells the footer what happened, and echoing it
+        back would loop, as well as making a restore at startup indistinguishable
+        from a user choosing the same value.
+        """
+        self._theme = ThemeChoice(choice)
+        for candidate, action in self._theme_actions.items():
+            action.setChecked(candidate is self._theme)
+
+        label = self._theme_labels[self._theme]
+        # A catalogue format string, not an f-string, so a right-to-left locale
+        # can put the glyph after the label (NFR-A5).
+        glyph = theme_glyph(self._theme.value)
+        self._theme_button.setText(self.tr("{0}  {1}").format(glyph, label))
+        self._theme_button.setAccessibleName(self.tr("Appearance: {0}").format(label))
 
     # -- state -------------------------------------------------------------
 
@@ -76,6 +158,7 @@ class StatusFooter(QFrame):
         is what turns a support conversation into something that starts from a
         code rather than a screenshot.
         """
+        self._status = status
         state = status.state.value
         labels = {
             "ready": self.tr("Runtime ready"),
@@ -110,6 +193,18 @@ class StatusFooter(QFrame):
     def set_run_state(self, run_state: str | None) -> None:
         self._run_state.setText(run_state if run_state else self.tr("idle"))
 
+    def set_palette(self, palette: Palette) -> None:
+        """Adopt a new palette and repaint what was already drawn (NFR-A4).
+
+        The runtime indicator is the only thing here that carries an inline
+        colour, and it is the one part of the window §7.9 rule 4 says must never
+        be wrong — so it is re-rendered from the stored status rather than left
+        showing the previous theme's green.
+        """
+        self._palette = palette
+        if self._status is not None:
+            self.set_runtime_status(self._status)
+
     # -- for tests ---------------------------------------------------------
 
     @property
@@ -127,3 +222,15 @@ class StatusFooter(QFrame):
     @property
     def run_state_text(self) -> str:
         return self._run_state.text()
+
+    @property
+    def theme_choice(self) -> ThemeChoice:
+        return self._theme
+
+    @property
+    def theme_text(self) -> str:
+        return self._theme_button.text()
+
+    def choose_theme(self, choice: ThemeChoice) -> None:
+        """Activate the menu entry for ``choice``, as a click would."""
+        self._theme_actions[ThemeChoice(choice)].trigger()

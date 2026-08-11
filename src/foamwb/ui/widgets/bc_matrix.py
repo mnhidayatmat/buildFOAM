@@ -179,6 +179,19 @@ class BoundaryMatrixView(QWidget):
         self._field_box.addItems(matrix.fields)
         self._refresh_suggestions()
 
+    def set_palette(self, palette: Palette) -> None:
+        """Adopt a new palette and repaint the grid (NFR-A4).
+
+        Cell colours are item brushes, not style-sheet rules, so replacing the
+        application style sheet does not reach them. Rebuilding from the stored
+        matrix is the cheapest way to be sure every cell agrees with the theme —
+        and a missing-entry cell still reading as red is the whole point of the
+        view (E-C03).
+        """
+        self._palette = palette
+        if self._matrix is not None:
+            self.set_matrix(self._matrix)
+
     def _refresh_suggestions(self) -> None:
         self._condition_box.clear()
         self._condition_box.addItems(_SUGGESTED.get(self._type_box.currentText(), ()))

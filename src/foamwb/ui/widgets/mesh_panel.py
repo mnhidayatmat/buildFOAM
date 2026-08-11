@@ -61,6 +61,11 @@ class MeshPanel(QWidget):
         self._worker: RunWorker | None = None
         self._running: Utility | None = None
         self._output: list[str] = []
+        # The status line's colour is a palette *token*, not a resolved colour,
+        # so a theme change can re-derive it. Storing the colour would leave the
+        # panel showing the previous theme's red after a switch.
+        self._status_token = "text_muted"
+        self._last_quality: MeshQuality | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -119,7 +124,7 @@ class MeshPanel(QWidget):
 
     def run_utility(self, utility: Utility) -> bool:
         if self._session is None or self._case is None:
-            self._status.setText(self._labels["mesh_needs_runtime"])
+            self._set_status(self._labels["mesh_needs_runtime"], "text_muted")
             return False
         if self._worker is not None and self._worker.is_running:
             return False
@@ -164,24 +169,24 @@ class MeshPanel(QWidget):
             self._show_quality(parse_check_mesh("\n".join(self._output)))
 
         if result.outcome is RunOutcome.SUCCEEDED:
-            self._status.setText(self._labels["utility_ok"].format(utility.name if utility else ""))
-            self._status.setStyleSheet(f"color: {self._palette.ready};")
+            self._set_status(
+                self._labels["utility_ok"].format(utility.name if utility else ""), "ready"
+            )
             if utility is not None and utility.makes_mesh:
                 self.mesh_changed.emit()
         else:
             failed = result.failed_stage
             code = failed.reason.id if failed and failed.reason else ""
-            self._status.setText(
-                self._labels["utility_failed"].format(utility.name if utility else "", code)
+            self._set_status(
+                self._labels["utility_failed"].format(utility.name if utility else "", code),
+                "broken",
             )
-            self._status.setStyleSheet(f"color: {self._palette.broken};")
         self._running = None
 
     @Slot(str)
     def _on_failed(self, message: str) -> None:
         self._set_idle()
-        self._status.setText(self._labels["utility_error"].format(message))
-        self._status.setStyleSheet(f"color: {self._palette.broken};")
+        self._set_status(self._labels["utility_error"].format(message), "broken")
         self._running = None
 
     def _show_quality(self, quality: MeshQuality) -> None:
@@ -210,12 +215,33 @@ class MeshPanel(QWidget):
 
     # -- state -------------------------------------------------------------
 
+    def _set_status(self, text: str, token: str) -> None:
+        """Say something, in the palette colour named by ``token``.
+
+        Every status message goes through here so the *token* is remembered
+        rather than the colour it resolved to, which is what makes a theme change
+        able to repaint a message written under the previous one.
+        """
+        self._status_token = token
+        self._status.setText(text)
+        self._status.setStyleSheet(f"color: {getattr(self._palette, token)};")
+
+    def set_palette(self, palette: Palette) -> None:
+        """Adopt a new palette and repaint the status and quality lines (NFR-A4)."""
+        self._palette = palette
+        self._log.set_palette(palette)
+        self._set_status(self._status.text(), self._status_token)
+        # Only if it is on screen: a utility that has started since hides the
+        # panel, and repainting it would put a stale mesh's figures back in front
+        # of someone watching the mesh being replaced.
+        if self._last_quality is not None and self._quality.isVisibleTo(self):
+            self._show_quality(self._last_quality)
+
     def _set_running(self, utility: Utility) -> None:
         for button in self._utility_buttons.values():
             button.setEnabled(False)
         self._stop_button.setEnabled(True)
-        self._status.setText(self._labels["utility_running"].format(utility.name))
-        self._status.setStyleSheet(f"color: {self._palette.text_muted};")
+        self._set_status(self._labels["utility_running"].format(utility.name), "text_muted")
 
     def _set_idle(self) -> None:
         for button in getattr(self, "_utility_buttons", {}).values():
@@ -223,8 +249,7 @@ class MeshPanel(QWidget):
         if hasattr(self, "_stop_button"):
             self._stop_button.setEnabled(False)
         if self._session is None:
-            self._status.setText(self._labels["mesh_needs_runtime"])
-            self._status.setStyleSheet(f"color: {self._palette.text_muted};")
+            self._set_status(self._labels["mesh_needs_runtime"], "text_muted")
 
     # -- for tests ---------------------------------------------------------
 

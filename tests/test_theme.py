@@ -28,6 +28,7 @@ from foamwb.ui.theme import (
     relative_luminance,
     status_glyph,
     stylesheet,
+    theme_glyph,
 )
 
 PALETTES = [LIGHT, DARK]
@@ -123,6 +124,21 @@ class TestColourIsNeverTheSoleCarrier:
         # that is supposed to still be telling the truth when everything else has
         # gone wrong.
         assert status_glyph("something-new")
+
+    def test_every_theme_choice_has_a_distinct_glyph(self) -> None:
+        glyphs = [theme_glyph(c) for c in ("light", "dark", "system")]
+        assert len(set(glyphs)) == len(glyphs)
+
+    def test_theme_and_status_glyphs_do_not_collide(self) -> None:
+        # The two controls sit side by side in the footer, so a shared glyph
+        # would make them ambiguous in exactly the greyscale screenshot NFR-A2
+        # exists to keep readable.
+        statuses = {status_glyph(s) for s in ("ready", "degraded", "missing", "broken")}
+        themes = {theme_glyph(c) for c in ("light", "dark", "system")}
+        assert not statuses & themes
+
+    def test_an_unknown_choice_does_not_raise(self) -> None:
+        assert theme_glyph("solarized")
 
 
 class TestPalettes:

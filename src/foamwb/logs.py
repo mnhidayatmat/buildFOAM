@@ -47,6 +47,11 @@ class Event(StrEnum):
     APP_START = "app.start"
     APP_STOP = "app.stop"
     APP_CRASH = "app.crash"
+    APP_THEME = "app.theme"
+    """The user changed the appearance setting (NFR-A4). Recorded because a
+    screenshot in a support ticket shows the theme but never says whether the
+    user chose it or the desktop did — and a contrast complaint is a different
+    bug in each case."""
 
     # Runtime (RuntimeManager / RuntimeSession)
     RUNTIME_DETECT_BEGIN = "runtime.detect.begin"

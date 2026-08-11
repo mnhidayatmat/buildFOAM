@@ -278,6 +278,13 @@ class RunView(QWidget):
 
     # -- state -------------------------------------------------------------
 
+    def set_palette(self, palette: Palette) -> None:
+        """Adopt a new palette and pass it to everything this view owns (NFR-A4)."""
+        self._palette = palette
+        self._strip.set_palette(palette)
+        self._log.set_palette(palette)
+        self._residuals.set_palette(palette)
+
     def _set_running(self) -> None:
         self._run_button.setEnabled(False)
         self._stop_button.setEnabled(True)

@@ -2,8 +2,8 @@
 
 The entry point is thin by design, but two of its decisions are load-bearing and
 neither is visible by reading the window: that the shell opens *before* anything
-slow happens, and that the theme follows the OS rather than a preference the app
-invents.
+slow happens, and that the stored theme is read *before* the first paint, so the
+window never opens in one theme and visibly corrects itself to another.
 """
 
 from __future__ import annotations
@@ -14,15 +14,32 @@ from PySide6.QtWidgets import QApplication
 
 from foamwb import __version__
 from foamwb.branding import APP_DISPLAY_NAME
+from foamwb.services.settings import SettingsService, ThemeChoice
+from foamwb.ui import app as app_module
 from foamwb.ui.app import build_application, palette_for_scheme
 from foamwb.ui.theme import DARK, LIGHT
 
 
+@pytest.fixture(autouse=True)
+def isolated_settings(tmp_path, monkeypatch):
+    """Never read or write the developer's own preferences file.
+
+    Autouse because ``build_application`` constructs its own service: a test that
+    forgot this would pass or fail depending on the theme the person running it
+    happens to prefer.
+    """
+    path = tmp_path / "config.json"
+    monkeypatch.setattr(app_module, "SettingsService", lambda: SettingsService(path))
+    return SettingsService(path)
+
+
 @pytest.fixture
 def built(qapp):
+    original = qapp.styleSheet()
     application, shell = build_application([])
     yield application, shell
     shell.deleteLater()
+    qapp.setStyleSheet(original)
 
 
 class TestBuildApplication:
@@ -55,8 +72,49 @@ class TestBuildApplication:
         assert "No OpenFOAM" in shell.footer.version_text
 
 
+class TestStartupTheme:
+    """The stored preference decides the first paint (NFR-A4)."""
+
+    def test_a_first_run_opens_in_light(self, built) -> None:
+        # No preferences file yet. Light is this build's default, so a first run
+        # looks the same on every machine.
+        _application, shell = built
+        assert shell.theme is ThemeChoice.LIGHT
+        assert shell.palette_in_use is LIGHT
+
+    @pytest.mark.parametrize(
+        ("choice", "expected"),
+        [(ThemeChoice.DARK, DARK), (ThemeChoice.LIGHT, LIGHT)],
+    )
+    def test_a_stored_choice_is_applied_before_the_window_appears(
+        self, qapp, isolated_settings, choice, expected
+    ) -> None:
+        isolated_settings.set_theme(choice)
+        original = qapp.styleSheet()
+        _application, shell = build_application([])
+        try:
+            # Both, not just the shell: the style sheet is what paints the first
+            # frame, and a shell that agreed with the preference while the
+            # application did not would flash the wrong theme on open.
+            assert shell.palette_in_use is expected
+            assert expected.bg.lower() in qapp.styleSheet().lower()
+        finally:
+            shell.deleteLater()
+            qapp.setStyleSheet(original)
+
+    def test_the_footer_control_reflects_the_stored_choice(self, qapp, isolated_settings) -> None:
+        isolated_settings.set_theme(ThemeChoice.SYSTEM)
+        original = qapp.styleSheet()
+        _application, shell = build_application([])
+        try:
+            assert shell.footer.theme_choice is ThemeChoice.SYSTEM
+        finally:
+            shell.deleteLater()
+            qapp.setStyleSheet(original)
+
+
 class TestThemeFollowsTheOS:
-    """NFR-A4 — light and dark, following the OS setting by default."""
+    """What the desktop implies, before any preference is applied."""
 
     def test_returns_a_palette(self, qapp) -> None:
         assert palette_for_scheme(qapp) in (LIGHT, DARK)

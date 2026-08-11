@@ -153,6 +153,36 @@ class ResidualPlot(QWidget):
                 curve.setData(times, values)
             curve.setVisible(self._toggles[item.name].isChecked())
 
+    def set_palette(self, palette: Palette) -> None:
+        """Adopt a new palette without disturbing the view (NFR-A4).
+
+        pyqtgraph paints its own canvas, so none of this comes from the
+        application style sheet — the background, the axes and every pen have to
+        be told separately. Pens are reset in place rather than by rebuilding the
+        curves, for the same reason :meth:`set_series` updates them in place: new
+        items would reset the user's zoom, and someone who changed the theme
+        while inspecting the tail of a converging run would lose their place.
+        """
+        self._palette = palette
+        pg.setConfigOptions(background=palette.bg, foreground=palette.text)
+        self._plot.setBackground(palette.bg)
+        for edge in ("left", "bottom"):
+            axis = self._plot.getAxis(edge)
+            axis.setPen(palette.text)
+            axis.setTextPen(palette.text)
+
+        # Enumerating the dict rather than the series list: insertion order is
+        # the order the colours were assigned, so this reproduces exactly the
+        # index each curve was originally given.
+        for index, curve in enumerate(self._curves.values()):
+            curve.setPen(
+                pg.mkPen(
+                    color=_colour_for(palette, index),
+                    width=2,
+                    dash=_DASHES[index % len(_DASHES)],
+                )
+            )
+
     def _add_toggle(self, name: str, label: str) -> None:
         toggle = QCheckBox(label)
         toggle.setChecked(True)

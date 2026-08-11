@@ -5,7 +5,10 @@ Lives in the presentation layer because it constructs a ``QApplication``; a
 
 NFR-P1 gives cold start to an interactive Hub a 3-second budget on the reference
 machine, which is why nothing here touches the filesystem beyond opening the log
-and nothing blocks on runtime detection. Detection is deliberately *not* run
+and reading one small preferences file, and nothing blocks on runtime detection.
+The preferences read happens before the first paint on purpose: deferring it
+would open the window in the default theme and then visibly correct it, which
+looks like a bug to the user who set the other one. Detection is deliberately *not* run
 before the window appears: probing for OpenFOAM can take seconds on a cold WSL
 distribution, and a splash screen that hides an empty window is still an empty
 window. The shell opens immediately in its honest "not detected yet" state and is
@@ -25,25 +28,13 @@ from foamwb import __version__
 from foamwb.branding import APP_DISPLAY_NAME, APP_ID
 from foamwb.logs import Event, configure, get_logger, log_event
 from foamwb.paths import log_dir
+from foamwb.services.settings import SettingsService
+from foamwb.ui.appearance import palette_for_scheme, resolve_palette
 from foamwb.ui.probe import RuntimeProbe
 from foamwb.ui.shell import Shell
-from foamwb.ui.theme import DARK, LIGHT, Palette, stylesheet
+from foamwb.ui.theme import stylesheet
 
-__all__ = ["main"]
-
-
-def palette_for_scheme(application: QApplication) -> Palette:
-    """Pick the palette matching the OS appearance (NFR-A4).
-
-    Qt reports the system colour scheme directly on 6.5+, so light and dark follow
-    the OS setting without the app owning a preference the user has already
-    expressed elsewhere.
-    """
-    hints = application.styleHints()
-    scheme = getattr(hints, "colorScheme", None)
-    if scheme is not None and scheme() == Qt.ColorScheme.Dark:
-        return DARK
-    return LIGHT
+__all__ = ["main", "palette_for_scheme"]
 
 
 def build_application(argv: list[str] | None = None) -> tuple[QApplication, Shell]:
@@ -68,10 +59,27 @@ def build_application(argv: list[str] | None = None) -> tuple[QApplication, Shel
     application.setApplicationVersion(__version__)
     application.setOrganizationDomain(f"{APP_ID}.local")
 
-    palette = palette_for_scheme(application)
+    # Read before the first paint, so the window opens in the theme the user
+    # chose rather than flashing the default and correcting itself. The read
+    # cannot fail (see SettingsService.load), so it costs nothing against
+    # NFR-P1's three-second budget even on a corrupt profile.
+    settings = SettingsService()
+    choice = settings.load().theme
+    palette = resolve_palette(choice, application)
     application.setStyleSheet(stylesheet(palette))
 
-    shell = Shell(palette)
+    shell = Shell(palette, settings=settings, theme=choice)
+
+    # A desktop that switches to dark at sunset must take the window with it,
+    # but only for a user who asked to follow the desktop — the shell decides
+    # that, which is why this is an unconditional connection to a method that
+    # checks.
+    scheme_changed = getattr(application.styleHints(), "colorSchemeChanged", None)
+    if scheme_changed is not None:
+        # A bound method rather than a lambda: Qt drops the connection when the
+        # window is destroyed, where a lambda would keep firing into it.
+        scheme_changed.connect(shell.refresh_system_theme)
+
     return application, shell
 
 

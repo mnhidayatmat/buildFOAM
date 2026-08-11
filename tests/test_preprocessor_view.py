@@ -8,7 +8,7 @@ from foamwb.services.case import CaseService
 from foamwb.services.foamdict import Document
 from foamwb.services.schema import load_schema
 from foamwb.ui import strings
-from foamwb.ui.theme import LIGHT
+from foamwb.ui.theme import DARK, LIGHT
 from foamwb.ui.views.preprocessor import PreprocessorView
 from foamwb.ui.widgets.form_editor import FormEditor
 from foamwb.ui.widgets.text_editor import TextEditor
@@ -316,3 +316,66 @@ class TestRoundTripAfterFormEdits:
             checked += 1
 
         assert checked > 15
+
+
+class TestRethemingKeepsTheEditorsIntact:
+    """NFR-A4 — a theme change is a colour change and nothing more.
+
+    Everything here paints outside the application style sheet — item brushes in
+    the matrix, character formats in the highlighter — so each has to be
+    re-rendered by hand, and each is therefore a place where "re-render" could
+    quietly become "reset".
+    """
+
+    def test_unsaved_text_edits_survive(self, view, tmp_path) -> None:
+        # The worst possible outcome: a user loses work to a cosmetic setting and
+        # rightly never touches the control again.
+        view.set_case(CaseService().open(make_case(tmp_path)))
+        edited = view.text.text.replace("endTime         0.5;", "endTime         9;")
+        view.text.set_text(edited)
+
+        view.set_palette(DARK)
+        assert view.text.text == edited
+        assert view.text.can_save
+
+    def test_the_highlighter_follows_the_new_palette(self, view, tmp_path) -> None:
+        # The formats are baked at construction, so a theme change has to build a
+        # new highlighter — and detach the old one, or both run and the loser
+        # paints last.
+        view.set_case(CaseService().open(make_case(tmp_path)))
+        view.set_palette(DARK)
+
+        highlighter = view.text._highlighter
+        assert highlighter.document() is view.text._view.document()
+        colours = {fmt.foreground().color().name().lower() for fmt in highlighter._formats.values()}
+        assert DARK.text_muted.lower() in colours
+        assert LIGHT.text_muted.lower() not in colours
+
+    def test_the_boundary_matrix_keeps_its_cells(self, view, tmp_path) -> None:
+        view.set_case(CaseService().open(make_case(tmp_path)))
+        before = [
+            [view.matrix.cell_text(r, c) for c in range(view.matrix.column_count)]
+            for r in range(view.matrix.row_count)
+        ]
+        assert before, "the fixture should produce a populated matrix"
+
+        view.set_palette(DARK)
+        after = [
+            [view.matrix.cell_text(r, c) for c in range(view.matrix.column_count)]
+            for r in range(view.matrix.row_count)
+        ]
+        assert after == before
+
+    def test_the_validation_panel_still_agrees_with_the_case(self, view, tmp_path) -> None:
+        # Re-derived rather than recoloured, because these colours *mean*
+        # something: red is a finding that blocks the run.
+        view.set_case(CaseService().open(make_case(tmp_path)))
+        before = view.finding_count
+        summary = view.summary_text
+        view.set_palette(DARK)
+        assert view.finding_count == before
+        assert view.summary_text == summary
+
+    def test_a_view_with_no_case_open_does_not_raise(self, view) -> None:
+        view.set_palette(DARK)
+        assert view.summary_text
