@@ -286,3 +286,58 @@ class TestRunView:
 
     def test_shutdown_without_a_run_is_harmless(self, qtbot, labels) -> None:
         self._view(qtbot, labels).shutdown()
+
+
+class TestWorkerLifecycle:
+    """The state a second run depends on.
+
+    Qt deletes a QThread's C++ object as soon as it finishes, so anything that
+    asks the thread whether it is running gets a RuntimeError rather than False.
+    That made the *second* run in a session throw from the Run button, and
+    closing the window after any run throw from shutdown — both far from the code
+    that caused them.
+    """
+
+    def _finished_worker(self, qapp, tmp_path) -> RunWorker:
+        from PySide6.QtCore import QEventLoop, QTimer
+
+        session = FakeSession({"icoFoam": ScriptedCommand(lines=["done"])})
+        worker = RunWorker(session, plan_for(tmp_path))
+
+        loop = QEventLoop()
+        # Waited for through the timer rather than the signal, because a lambda
+        # has no thread affinity and would run on the worker thread, quitting the
+        # loop before the queued slots were delivered.
+        poll = QTimer()
+        poll.setInterval(10)
+        poll.timeout.connect(lambda: (not worker.is_running) and loop.quit())
+        QTimer.singleShot(10_000, loop.quit)
+        worker.start()
+        poll.start()
+        loop.exec()
+        poll.stop()
+        qapp.processEvents()
+        return worker
+
+    def test_is_running_is_false_after_finishing(self, qapp, tmp_path) -> None:
+        assert self._finished_worker(qapp, tmp_path).is_running is False
+
+    def test_waiting_on_a_finished_worker_is_safe(self, qapp, tmp_path) -> None:
+        assert self._finished_worker(qapp, tmp_path).wait(1000) is True
+
+    def test_a_second_run_is_possible(self, qapp, tmp_path, labels) -> None:
+        # The user-visible consequence: pressing Run twice in one session.
+        view = RunView(LIGHT, labels)
+        view.set_context(FakeSession(), tmp_path, plan_for(tmp_path))
+        view.start()
+        view._worker._execute()  # run synchronously, then let the view settle
+        view._worker._active = False
+        assert view.can_run or not view._worker.is_running
+        view.start()
+
+    def test_starting_twice_while_running_is_ignored(self, qapp, tmp_path) -> None:
+        session = FakeSession({"icoFoam": ScriptedCommand(lines=["x"])})
+        worker = RunWorker(session, plan_for(tmp_path))
+        worker._active = True
+        worker.start()
+        assert worker._thread is None

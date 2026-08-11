@@ -211,6 +211,7 @@ class Shell(QMainWindow):
             installations = manager.discover()
             if installations:
                 self._session = manager.session_for(installations[0])
+                self._preprocessor.set_session(self._session)
 
     def set_active_case(self, case_name: str | None) -> None:
         self._footer.set_case(case_name)
@@ -352,4 +353,5 @@ class Shell(QMainWindow):
         group is signalled while Qt is still alive to wait for it.
         """
         self._run.shutdown()
+        self._preprocessor.shutdown()
         super().closeEvent(event)

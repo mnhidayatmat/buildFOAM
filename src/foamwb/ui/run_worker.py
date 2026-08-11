@@ -77,6 +77,13 @@ class RunWorker(QObject):
         self._log_dir = log_dir
         self._thread: QThread | None = None
         self._controller: RunController | None = None
+        # Tracked as a plain flag rather than asked of the QThread. Qt deletes
+        # the thread's C++ object once it finishes (deleteLater), leaving this
+        # side holding a dangling wrapper: calling isRunning() on it raises
+        # RuntimeError. That would have made the *second* run in a session throw
+        # from the Run button, and closing the window after any run throw from
+        # shutdown — both long after the code that caused it.
+        self._active = False
         self._batch: list[str] = []
         self._batch_stage = ""
         self._last_flush = 0.0
@@ -84,7 +91,7 @@ class RunWorker(QObject):
     # -- lifecycle ---------------------------------------------------------
 
     def start(self) -> None:
-        if self._thread is not None:
+        if self._active:
             return
 
         thread = QThread()
@@ -97,6 +104,7 @@ class RunWorker(QObject):
         thread.finished.connect(thread.deleteLater)
 
         self._thread = thread
+        self._active = True
         thread.start()
 
     def stop(self, mode: StopMode = StopMode.WRITE) -> None:
@@ -112,13 +120,24 @@ class RunWorker(QObject):
 
     def wait(self, timeout_ms: int = 30_000) -> bool:
         """Block until the thread ends. For shutdown, not for normal use."""
-        if self._thread is None:
+        if self._thread is None or not self._active:
             return True
-        return self._thread.wait(timeout_ms)
+        try:
+            return self._thread.wait(timeout_ms)
+        except RuntimeError:
+            # The thread finished and Qt deleted it between the check and the
+            # call. Nothing is still running, which is what the caller asked.
+            return True
 
     @property
     def is_running(self) -> bool:
-        return self._thread is not None and self._thread.isRunning()
+        """Whether the plan is still executing.
+
+        Answered from this object's own state. The QThread cannot be asked: it is
+        deleted as soon as it finishes, and the wrapper left behind raises rather
+        than reporting False.
+        """
+        return self._active
 
     # -- execution ---------------------------------------------------------
 
@@ -132,9 +151,11 @@ class RunWorker(QObject):
         except Exception as exc:
             self._flush()
             log_event(_log, Event.ERROR_RAISED, where="run.execute", error=str(exc))
+            self._active = False
             self.failed.emit(str(exc))
             return
         self._flush()
+        self._active = False
         self.finished.emit(result)
 
     def _on_line(self, stage: str, line: str) -> None:

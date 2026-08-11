@@ -41,6 +41,7 @@ from foamwb.services.validation import validate_case
 from foamwb.ui.theme import Palette
 from foamwb.ui.widgets.bc_matrix import BoundaryMatrixView
 from foamwb.ui.widgets.form_editor import FormEditor
+from foamwb.ui.widgets.mesh_panel import MeshPanel
 from foamwb.ui.widgets.text_editor import TextEditor
 
 __all__ = ["PreprocessorView"]
@@ -63,6 +64,7 @@ class PreprocessorView(QWidget):
         self._labels = labels
         self._cases = CaseService()
         self._case: Case | None = None
+        self._session = None
         self._current: Path | None = None
 
         layout = QVBoxLayout(self)
@@ -103,6 +105,12 @@ class PreprocessorView(QWidget):
         self._matrix = BoundaryMatrixView(self._palette, labels)
         self._matrix.apply_requested.connect(self._apply_bulk)
         self._tabs.addTab(self._matrix, labels["bc_tab"])
+
+        self._mesh = MeshPanel(self._palette, labels)
+        # A utility that rewrote the mesh invalidates everything derived from it:
+        # the patch list, the matrix and the findings are all about the old one.
+        self._mesh.mesh_changed.connect(self._on_mesh_changed)
+        self._tabs.addTab(self._mesh, labels["mesh_tab"])
         return self._tabs
 
     def _build_validation(self, labels: dict[str, str]) -> QWidget:
@@ -128,6 +136,17 @@ class PreprocessorView(QWidget):
 
     # -- content -----------------------------------------------------------
 
+    def set_session(self, session) -> None:
+        """Supply the runtime the meshing utilities run in.
+
+        Separate from :meth:`set_case` because the two arrive at different times:
+        a case can be opened before detection finishes, and the mesh panel says
+        so rather than offering buttons that cannot work.
+        """
+        self._session = session
+        if self._case is not None:
+            self._refresh_mesh_context()
+
     def set_case(self, case: Case) -> None:
         """Load a case: populate the tree, select something, validate."""
         self._case = case
@@ -147,7 +166,24 @@ class PreprocessorView(QWidget):
             groups[group].addChild(leaf)
 
         self.refresh_validation()
+        self._refresh_mesh_context()
         self._select_first_editable()
+
+    def _refresh_mesh_context(self) -> None:
+        if self._case is None:
+            return
+        from foamwb.services.boundary import read_boundary
+
+        self._mesh.set_context(
+            self._session, self._case.path, meshed=bool(read_boundary(self._case.path))
+        )
+
+    @Slot()
+    def _on_mesh_changed(self) -> None:
+        """A utility rewrote the mesh, so everything derived from it is stale."""
+        self.refresh_validation()
+        self._refresh_mesh_context()
+        self.case_changed.emit()
 
     def _select_first_editable(self) -> None:
         """Open a dictionary the form can edit, rather than whatever sorts first.
@@ -317,6 +353,13 @@ class PreprocessorView(QWidget):
     @property
     def matrix(self) -> BoundaryMatrixView:
         return self._matrix
+
+    @property
+    def mesh(self) -> MeshPanel:
+        return self._mesh
+
+    def shutdown(self) -> None:
+        self._mesh.shutdown()
 
     @property
     def current_file(self) -> Path | None:

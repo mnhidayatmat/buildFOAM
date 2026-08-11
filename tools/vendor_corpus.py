@@ -130,6 +130,13 @@ def _is_dictionary(path: Path, data: bytes) -> bool:
         return False
     # The FoamFile header is the canonical marker of an OpenFOAM dictionary. The
     # .dict fixtures in IO/dictionary carry one too, including the fatal-* ones.
+    #
+    # This deliberately excludes the fragments a case pulls in with #include —
+    # system/sampling and its like carry no header. They are not dictionaries in
+    # their own right, which is why they are out of the *parser* corpus, but a
+    # case is not runnable without them. That is the line between this corpus and
+    # the tutorial suite: dictionaries for §12.2, real cases for anything that
+    # runs.
     return b"FoamFile" in data[:2000]
 
 

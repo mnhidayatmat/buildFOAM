@@ -12,6 +12,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 # Qt widget tests render offscreen so the suite needs no display: it works on a
 # CI runner, over ssh, and without stealing focus during a local run. Set before
 # any PySide6 import, since the platform plugin is chosen at QApplication
@@ -82,3 +84,36 @@ _UI_TEST_MODULES = (
 )
 
 collect_ignore = [] if QT_AVAILABLE else list(_UI_TEST_MODULES)
+
+
+# ---------------------------------------------------------------------------
+# Shared runtime fixtures
+# ---------------------------------------------------------------------------
+#
+# Defined here rather than duplicated into every module that needs a real
+# OpenFOAM: three copies of "find an installation, verify it, locate its
+# tutorials" would drift, and the copy that drifted would be the one that
+# quietly stopped exercising anything.
+
+
+@pytest.fixture(scope="session")
+def runtime():
+    from foamwb.services.runtime import RuntimeManager
+
+    manager = RuntimeManager()
+    installations = manager.discover()
+    if not installations:
+        require_runtime_or_skip("no OpenFOAM installation found")
+    status = manager.verify(installations[0])
+    if not status.is_usable:
+        require_runtime_or_skip(f"OpenFOAM not usable: {status.detail}")
+    return manager, installations[0], status
+
+
+@pytest.fixture(scope="session")
+def tutorials(runtime) -> Path:
+    manager, installation, _status = runtime
+    found = manager.tutorials_dir(installation)
+    if found is None:
+        require_runtime_or_skip(f"tutorials not reachable from {installation.entry_point}")
+    return found

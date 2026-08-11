@@ -87,6 +87,23 @@ def shell_strings() -> dict[str, str]:
     }
 
 
+def log_pane_strings() -> dict[str, str]:
+    """Strings owned by the log pane itself.
+
+    Shared, because the Run view and the meshing panel both embed one. Kept as
+    its own function rather than copied into both catalogues: two copies would
+    drift, and a translator would be asked to translate the same sentence twice.
+    """
+    return {
+        "log": _("Solver log"),
+        "search_log": _("Search the log"),
+        "find_next": _("Find next"),
+        "jump_to_error": _("Jump to error"),
+        "follow_output": _("Follow output"),
+        "log_status": _("{0} lines, {1} flagged"),
+    }
+
+
 def run_strings() -> dict[str, str]:
     """The Run view (§7.5).
 
@@ -95,6 +112,7 @@ def run_strings() -> dict[str, str]:
     that decides whether they want it (NFR-A6).
     """
     return {
+        **log_pane_strings(),
         "no_plan": _("No run planned yet."),
         "no_case_for_run": _("Open a case to run it."),
         "ready_to_run": _("{0} is ready to run."),
@@ -160,6 +178,9 @@ def run_strings() -> dict[str, str]:
 def preprocessor_strings() -> dict[str, str]:
     """The Preprocessor view (§7.4)."""
     return {
+        # The mesh panel embeds a log pane, so it needs its vocabulary too.
+        **log_pane_strings(),
+        "stop_now": _("Stop Now"),
         "case_files": _("Case files"),
         "form_tab": _("Form"),
         "form_tab_unavailable": _("Form (not available)"),
@@ -191,6 +212,15 @@ def preprocessor_strings() -> dict[str, str]:
         "apply_to_all": _("Apply to all"),
         "for_field": _("patches, for"),
         "apply": _("Apply"),
+        # Meshing utilities (FR-P5, FR-P9)
+        "mesh_tab": _("Mesh"),
+        "mesh_needs_runtime": _("Meshing needs a working OpenFOAM. Set one up first."),
+        "utility_running": _("Running {0}…"),
+        "utility_ok": _("{0} finished."),
+        "utility_failed": _("{0} did not finish. {1}"),
+        "utility_error": _("The utility could not start: {0}"),
+        "quality_cells": _("{0} cells"),
+        "quality_metric": _("{0} {1} ({2})"),
     }
 
 
