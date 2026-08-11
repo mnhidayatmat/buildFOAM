@@ -4,7 +4,7 @@
 
 > BuildFOAM is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com, and owner of the OPENFOAM® and OpenCFD® trade marks.
 
-**Status: M4's exit criterion is met.** `uv run buildfoam` opens a case, edits its dictionaries through schema-driven forms or a raw-text tab, runs the meshing utilities, shows the boundary-condition matrix with live validation, builds a run plan, executes it with the solver log streaming, and plots residuals as they converge. Three gates pass: §12.2's round-trip corpus, §12.3's golden-case regression, and §11's *"every bundled tutorial can be opened, edited via a form, saved, and still runs"*. M4 is complete. The specification is [`docs/PRD-v1.0.md`](docs/PRD-v1.0.md).
+**Status: M4's exit criterion is met.** `uv run buildfoam` opens a case, edits its dictionaries through schema-driven forms or a raw-text tab, runs the meshing utilities, shows the boundary-condition matrix with live validation, builds a run plan, executes it with the solver log streaming, and plots residuals as they converge. Three gates pass: §12.2's round-trip corpus, §12.3's golden-case regression, and §11's *"every bundled tutorial can be opened, edited via a form, saved, and still runs"*. M4 is complete. **M4a (§6.9.1) is in progress**: the turbulence advisor's service layer is built and tested — model catalogue, ranked shortlist, wall-treatment coupling, first-cell-height and inlet calculators, and the post-run y⁺ audit. The V&V view (§7.7) is next. The specification is [`docs/PRD-v1.0.md`](docs/PRD-v1.0.md).
 
 ---
 
@@ -28,7 +28,10 @@ src/foamwb/            Application. The import package is deliberately not named
     run/plan.py          RunPlan / Stage — the §4.3 abstraction
     boundary.py          Patch names and types from polyMesh (FR-P4)
     boundary_matrix.py   Patch x field matrix and its findings (FR-P4, E-C03/04)
+    advisor.py           Turbulence model ranking (FR-VVT1..VVT4)
     mesh.py              Meshing utilities and checkMesh quality (FR-P5, FR-P9)
+    turbulence.py        First-cell height and inlet values (FR-VVT5, FR-VVT6)
+    yplus.py             Post-run y+ audit (FR-VVT7, FR-VVT8)
     schema.py            The §5.4 declarative form layer
     validation.py        Whole-case findings (FR-C3)
     run/controller.py    Executes a plan, streams output (FR-S1, FR-S5)
