@@ -21,7 +21,12 @@
     "questionnaire distinguishes the candidates. Without it the top pick fell",
     "out of alphabetical order \u2014 an arbitrary choice presented authoritatively,",
     "which is what FR-VVT2 forbids. The prior carries its own stated reason, so",
-    "a shortlist is never silent about why its leader leads."
+    "a shortlist is never silent about why its leader leads.",
+    "",
+    "'block' is where OpenFOAM stores the model, which is not the same as the",
+    "family: hybrid RANS-LES models are declared under `simulationType LES` with",
+    "`LESModel`, verified against the motorBike DES tutorial. Writing them into",
+    "a RAS block would produce a case that does not run."
   ],
   "wall_treatments": {
     "wall_functions": {
@@ -74,7 +79,9 @@
       ],
       "good_at": "Confined flows without strong pressure gradients. Robust, well understood, and the historical default.",
       "fails_at": "Adverse pressure gradients and separation, which it systematically delays or misses. Poor near walls without wall functions.",
-      "baseline": 1.5
+      "baseline": 1.5,
+      "block": "RAS",
+      "model_key": "RASModel"
     },
     {
       "name": "realizableKE",
@@ -89,7 +96,9 @@
       ],
       "good_at": "Round jets, rotation and mild separation. Fixes the normal-stress realizability defect of standard k-epsilon.",
       "fails_at": "Still an epsilon-based model near walls; strong adverse pressure gradients remain difficult.",
-      "baseline": 1.0
+      "baseline": 1.0,
+      "block": "RAS",
+      "model_key": "RASModel"
     },
     {
       "name": "RNGkEpsilon",
@@ -104,7 +113,9 @@
       ],
       "good_at": "Swirling and rapidly strained flows, where the extra strain term helps.",
       "fails_at": "Can be less stable than standard k-epsilon, and is no better at separation onset.",
-      "baseline": 0.5
+      "baseline": 0.5,
+      "block": "RAS",
+      "model_key": "RASModel"
     },
     {
       "name": "LaunderSharmaKE",
@@ -119,7 +130,9 @@
       ],
       "good_at": "Low-Reynolds-number flows resolved to the wall, including transitional cases.",
       "fails_at": "Requires y+ around 1 everywhere. On a wall-function mesh the answer is meaningless.",
-      "baseline": 0.0
+      "baseline": 0.0,
+      "block": "RAS",
+      "model_key": "RASModel"
     },
     {
       "name": "kOmega",
@@ -135,7 +148,9 @@
       ],
       "good_at": "Near-wall and adverse-pressure-gradient behaviour, integrable to the wall without damping functions.",
       "fails_at": "Notoriously sensitive to the free-stream omega value, which makes external flows unreliable.",
-      "baseline": 0.5
+      "baseline": 0.5,
+      "block": "RAS",
+      "model_key": "RASModel"
     },
     {
       "name": "kOmegaSST",
@@ -151,7 +166,9 @@
       ],
       "good_at": "Separation and adverse pressure gradients. Blends k-omega near the wall with k-epsilon outside, avoiding the free-stream sensitivity. The usual default for external aerodynamics.",
       "fails_at": "Over-predicts separation in some configurations; still a linear eddy-viscosity model, so no normal-stress anisotropy.",
-      "baseline": 2.0
+      "baseline": 2.0,
+      "block": "RAS",
+      "model_key": "RASModel"
     },
     {
       "name": "kOmegaSSTLM",
@@ -166,7 +183,9 @@
       ],
       "good_at": "Laminar-turbulent transition, via the Langtry-Menter transition equations.",
       "fails_at": "Needs a resolved near-wall mesh and careful inlet turbulence; expensive and easy to misuse.",
-      "baseline": 0.0
+      "baseline": 0.0,
+      "block": "RAS",
+      "model_key": "RASModel"
     },
     {
       "name": "SpalartAllmaras",
@@ -181,7 +200,9 @@
       ],
       "good_at": "External aerodynamics at mild incidence. One equation, cheap and robust.",
       "fails_at": "Free shear flows and massive separation; no account of transition.",
-      "baseline": 0.75
+      "baseline": 0.75,
+      "block": "RAS",
+      "model_key": "RASModel"
     },
     {
       "name": "v2f",
@@ -196,7 +217,9 @@
       ],
       "good_at": "Near-wall anisotropy and heat transfer, without needing damping functions.",
       "fails_at": "Numerically delicate and demanding of the mesh.",
-      "baseline": 0.0
+      "baseline": 0.0,
+      "block": "RAS",
+      "model_key": "RASModel"
     },
     {
       "name": "LRR",
@@ -211,7 +234,9 @@
       ],
       "good_at": "Flows where normal-stress anisotropy matters \u2014 swirl, secondary flows in ducts.",
       "fails_at": "Seven transport equations, slower and less robust to converge.",
-      "baseline": 0.0
+      "baseline": 0.0,
+      "block": "RAS",
+      "model_key": "RASModel"
     },
     {
       "name": "SSG",
@@ -226,7 +251,9 @@
       ],
       "good_at": "As LRR, with a better pressure-strain model.",
       "fails_at": "Same cost and robustness penalty as any Reynolds-stress model.",
-      "baseline": 0.0
+      "baseline": 0.0,
+      "block": "RAS",
+      "model_key": "RASModel"
     },
     {
       "name": "Smagorinsky",
@@ -240,7 +267,9 @@
       ],
       "good_at": "Free shear flows, as the simplest LES subgrid model.",
       "fails_at": "Does not vanish at a wall without damping, so wall-bounded flows need care.",
-      "baseline": 0.0
+      "baseline": 0.0,
+      "block": "LES",
+      "model_key": "LESModel"
     },
     {
       "name": "WALE",
@@ -254,7 +283,9 @@
       ],
       "good_at": "Wall-bounded LES; the eddy viscosity vanishes at the wall by construction.",
       "fails_at": "Still needs a genuinely LES-resolved mesh in all three directions.",
-      "baseline": 0.0
+      "baseline": 0.0,
+      "block": "LES",
+      "model_key": "LESModel"
     },
     {
       "name": "kEqn",
@@ -268,7 +299,9 @@
       ],
       "good_at": "LES with a transported subgrid energy, which handles non-equilibrium better.",
       "fails_at": "As with all LES, the mesh cost dominates.",
-      "baseline": 0.0
+      "baseline": 0.0,
+      "block": "LES",
+      "model_key": "LESModel"
     },
     {
       "name": "dynamicKEqn",
@@ -282,7 +315,9 @@
       ],
       "good_at": "LES where the model coefficient should adapt rather than be assumed.",
       "fails_at": "More expensive again, and the dynamic procedure can be fragile.",
-      "baseline": 0.0
+      "baseline": 0.0,
+      "block": "LES",
+      "model_key": "LESModel"
     },
     {
       "name": "SpalartAllmarasDDES",
@@ -297,7 +332,9 @@
       ],
       "good_at": "Massively separated external flow at a fraction of LES cost.",
       "fails_at": "Grey-area and grid-induced separation if the mesh is built carelessly.",
-      "baseline": 0.0
+      "baseline": 0.0,
+      "block": "LES",
+      "model_key": "LESModel"
     },
     {
       "name": "SpalartAllmarasIDDES",
@@ -311,7 +348,9 @@
       ],
       "good_at": "As DDES, with wall-modelled LES in the boundary layer.",
       "fails_at": "Mesh requirements are stricter still, and the same grey area applies.",
-      "baseline": 0.0
+      "baseline": 0.0,
+      "block": "LES",
+      "model_key": "LESModel"
     },
     {
       "name": "kOmegaSSTDES",
@@ -327,7 +366,9 @@
       ],
       "good_at": "Separated flow where the RANS branch should be SST rather than Spalart-Allmaras.",
       "fails_at": "Same grey-area concerns as any DES.",
-      "baseline": 0.0
+      "baseline": 0.0,
+      "block": "LES",
+      "model_key": "LESModel"
     }
   ]
 }

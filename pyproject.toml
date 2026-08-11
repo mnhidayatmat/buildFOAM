@@ -95,7 +95,7 @@ ignore = [
 # The ambiguous-unicode checks exist to catch homoglyph attacks; these are the
 # actual symbols the quantities are written with, and a CFD tool that spelled nu
 # as "v" would be harder to check against the literature it cites.
-allowed-confusables = ["ν", "ρ", "τ", "ε", "ω", "α", "μ", "×", "–", "‐"]
+allowed-confusables = ["ν", "ρ", "τ", "ε", "ω", "α", "μ", "×", "–", "‐", "−", "⁺"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]

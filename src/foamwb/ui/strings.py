@@ -225,6 +225,129 @@ def preprocessor_strings() -> dict[str, str]:
     }
 
 
+def vandv_strings() -> dict[str, str]:
+    """The V&V view (§7.7).
+
+    Questions are phrased as things a user can answer about their own problem,
+    not as model jargon. "Does the flow separate?" is answerable by someone who
+    has seen the geometry; "do you need a realizable stress tensor?" is not, and
+    a questionnaire that asked it would be a quiz rather than an aid.
+    """
+    return {
+        "vv_no_case": _("Open a case to configure its turbulence modelling."),
+        "vv_provenance": _("{0}  ·  OpenFOAM {1}  ·  currently {2}"),
+        "vv_unknown_version": _("version unknown"),
+        "vv_no_model": _("no turbulence model set"),
+        # Tabs
+        "vv_turbulence_tab": _("Turbulence"),
+        "vv_mesh_study_tab": _("Mesh study"),
+        "vv_validation_tab": _("Validation"),
+        "vv_mesh_study_title": _("Grid convergence study"),
+        "vv_mesh_study_body": _(
+            "Generates a family of systematically refined meshes, runs them as "
+            "one batch, and produces the GCI table a journal will ask for — with "
+            "its convergence class and the assumptions it rests on. Ships in the "
+            "next release."
+        ),
+        "vv_validation_title": _("Validation against experiment"),
+        "vv_validation_body": _(
+            "Imports measured data, samples the solution at the same locations, "
+            "and reports the comparison error against its combined uncertainty. "
+            "It will never print the word 'validated' as a verdict: that "
+            "judgement depends on the application and belongs to you. Ships in "
+            "the next release."
+        ),
+        # Questionnaire
+        "vv_questionnaire": _("About your flow"),
+        "vv_questionnaire_note": _(
+            "Answer what you know. Anything left unticked is treated as 'no', "
+            "and the shortlist still explains itself."
+        ),
+        "q_external_flow": _("Flow around a body, not through a duct"),
+        "q_external_flow_help": _("External aerodynamics rather than internal, confined flow."),
+        "q_separation": _("The flow separates from a surface"),
+        "q_separation_help": _(
+            "A recirculation or wake behind a step, a bluff body, or a stalled aerofoil."
+        ),
+        "q_adverse_pressure": _("Pressure rises along the flow"),
+        "q_adverse_pressure_help": _(
+            "A diffuser, a rear-facing curve, anything decelerating the flow near a wall."
+        ),
+        "q_swirl": _("The flow swirls or curves strongly"),
+        "q_swirl_help": _("Cyclones, bends, anything with strong streamline curvature."),
+        "q_transition": _("Laminar-to-turbulent transition matters"),
+        "q_transition_help": _("The answer depends on where the boundary layer becomes turbulent."),
+        "q_buoyancy": _("Buoyancy drives the flow"),
+        "q_buoyancy_help": _("Natural convection, or a strongly heated or stratified flow."),
+        "q_unsteady": _("The result changes over time"),
+        "q_unsteady_help": _("Vortex shedding, a transient event, or a moving boundary."),
+        "q_scale_resolving": _("Resolve the turbulent structures, not just their average"),
+        "q_scale_resolving_help": _(
+            "Choose this only if you need the eddies themselves — it costs "
+            "orders of magnitude more than modelling them."
+        ),
+        "q_compressible": _("Compressibility matters"),
+        "q_compressible_help": _("Roughly Mach 0.3 and above, or with significant heat release."),
+        "q_resolve_near_wall": _("Mesh into the viscous sublayer (y+ ≈ 1)"),
+        "q_resolve_near_wall_help": _(
+            "Needed for heat transfer and separation onset. Far more cells near every wall."
+        ),
+        "q_compute": _("Compute available"),
+        "compute_laptop": _("A laptop"),
+        "compute_workstation": _("A workstation"),
+        "compute_cluster": _("A cluster"),
+        # Shortlist
+        "vv_shortlist": _("Suggested models"),
+        "vv_shortlist_note": _(
+            "Ranked, never decided for you. Each entry says where it is strong "
+            "and where it is known to fail."
+        ),
+        "vv_entry_head": _("{0}   ({1})"),
+        "vv_good_at": _("Good at: {0}"),
+        "vv_fails_at": _("Known to fail: {0}"),
+        "vv_cost": _("Cost: {0}"),
+        "cost_1": _("low"),
+        "cost_2": _("moderate"),
+        "cost_3": _("high"),
+        "cost_4": _("very high"),
+        "vv_because": _("+ {0}"),
+        "vv_but": _("− {0}"),
+        "vv_current": _("This case currently uses {0}, ranked {1} here — {2}"),
+        "vv_current_unknown": _("This case uses {0}, which is not in the catalogue."),
+        "vv_no_factor": _("nothing in your answers distinguishes it either way"),
+        # Coupled consequences
+        "vv_consequences": _("What that implies"),
+        "vv_wall_treatment": _("Wall treatment"),
+        "vv_velocity": _("Reference velocity (m/s)"),
+        "vv_length": _("Reference length (m)"),
+        "vv_viscosity": _("Kinematic viscosity (m²/s)"),
+        "vv_intensity": _("Turbulence intensity (%)"),
+        "vv_target": _("Target y+: {0}–{1}, aiming at {2}"),
+        "vv_first_cell": _("First cell height: {0} m"),
+        "vv_layers": _("Inflation layers to cover 2% of the reference length: {0}"),
+        "vv_reynolds": _("Reynolds number: {0}"),
+        "vv_inlet": _("Inlet {0} = {1}          {2}"),
+        "vv_caveat": _("From {0}. {1}"),
+        "vv_apply": _("Apply to this case"),
+        "vv_applied": _("Applied {0}. Changed: {1}"),
+        # Audit
+        "vv_audit": _("y+ after the last run"),
+        "vv_audit_none": _(
+            "No y+ data yet. Run the case with the y+ audit enabled to see where "
+            "the mesh actually landed."
+        ),
+        "vv_audit_no_walls": _("This case has no wall patches to audit."),
+        "vv_audit_summary": _("Overall: {0}. Patches needing attention: {1}"),
+        "vv_patch": _("Patch"),
+        "vv_min": _("min y+"),
+        "vv_max": _("max y+"),
+        "vv_verdict": _("Verdict"),
+        "verdict_pass": _("within band"),
+        "verdict_warn": _("check"),
+        "verdict_fail": _("outside the model's assumptions"),
+    }
+
+
 def runtime_banner_message(state: str, code: str | None) -> str:
     """Banner text for a non-ready runtime (§7.2).
 

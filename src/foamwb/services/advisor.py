@@ -126,6 +126,15 @@ class Model:
     wall: tuple[str, ...]
     good_at: str
     fails_at: str
+    block: str = "RAS"
+    """Which dictionary block declares this model.
+
+    Not the same as :attr:`family`: a hybrid RANS-LES model is declared under
+    ``simulationType LES`` with ``LESModel``, so writing it into a RAS block
+    would produce a case that does not run.
+    """
+
+    model_key: str = "RASModel"
     baseline: float = 0.0
     """How broadly applicable this model is when nothing distinguishes the
     candidates. Small, so any real answer outweighs it — its job is to stop the
@@ -208,6 +217,8 @@ def load_catalogue() -> Catalogue:
             wall=tuple(entry["wall"]),
             good_at=entry["good_at"],
             fails_at=entry["fails_at"],
+            block=entry.get("block", "RAS"),
+            model_key=entry.get("model_key", "RASModel"),
             baseline=float(entry.get("baseline", 0.0)),
             since=entry.get("since"),
         )
@@ -319,7 +330,11 @@ def recommend(
     a silent answer wearing a list's clothes.
     """
     catalogue = catalogue or load_catalogue()
-    affordable = _AFFORDABLE[answers.compute]
+    # Coerced, because Compute is a StrEnum and a caller that round-tripped it
+    # through Qt or JSON holds the string form. Rejecting that would be pedantry
+    # about a value that is already unambiguous.
+    compute = Compute(answers.compute)
+    affordable = _AFFORDABLE[compute]
 
     scored: list[Recommendation] = []
     for model in catalogue.models:
@@ -345,7 +360,7 @@ def recommend(
         # slower answer, it is one the user will never see finish.
         if model.cost > affordable:
             score -= 4.0
-            caveats.append(f"needs more compute than a {answers.compute.value} provides")
+            caveats.append(f"needs more compute than a {compute.value} provides")
         else:
             score += (affordable - model.cost) * 0.5
 

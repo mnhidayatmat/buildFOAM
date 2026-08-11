@@ -39,7 +39,12 @@ from foamwb.logs import Event, get_logger, log_event
 from foamwb.services.case import CaseError, CaseService
 from foamwb.services.recents import RecentCase
 from foamwb.services.run import build_plan
-from foamwb.services.runtime import RuntimeManager, RuntimeState, RuntimeStatus
+from foamwb.services.runtime import (
+    RuntimeManager,
+    RuntimeState,
+    RuntimeStatus,
+    load_manifest,
+)
 from foamwb.services.settings import DEFAULT_THEME, SettingsService, ThemeChoice
 from foamwb.ui import strings
 from foamwb.ui.appearance import resolve_palette
@@ -50,6 +55,7 @@ from foamwb.ui.views.hub import HubView
 from foamwb.ui.views.placeholder import PlaceholderView
 from foamwb.ui.views.preprocessor import PreprocessorView
 from foamwb.ui.views.run import RunView
+from foamwb.ui.views.vandv import VandVView
 
 __all__ = ["Shell"]
 
@@ -156,6 +162,10 @@ class Shell(QMainWindow):
         )
         self._views["cases"] = self._preprocessor
         self._stack.addWidget(self._preprocessor)
+
+        self._vandv = VandVView(self._palette, {**self._strings, **strings.vandv_strings()})
+        self._views["vv"] = self._vandv
+        self._stack.addWidget(self._vandv)
 
         for item in NAV_ITEMS:
             if item.key in self._views:
@@ -413,6 +423,11 @@ class Shell(QMainWindow):
 
         self.set_active_case(case.name)
         self._preprocessor.set_case(case)
+        self._vandv.set_case(
+            case,
+            version=self._runtime.openfoam_version if self._runtime else "",
+            dictionary_name=self._turbulence_dictionary(),
+        )
         if self._session is not None:
             self._run.set_context(self._session, case.path, plan)
             self.show_view("run")
@@ -449,6 +464,26 @@ class Shell(QMainWindow):
     @property
     def preprocessor(self) -> PreprocessorView:
         return self._preprocessor
+
+    @property
+    def vandv(self) -> VandVView:
+        return self._vandv
+
+    def _turbulence_dictionary(self) -> str:
+        """The lineage's name for the turbulence dictionary (NFR-M3, DEC-15).
+
+        Read from the manifest rather than spelled out: ESI and the Foundation
+        call this file different things, and the indirection is what keeps
+        supporting both a data change.
+        """
+        version = self._runtime.openfoam_version if self._runtime else None
+        manifest = load_manifest()
+        release = (
+            manifest.release(version)
+            if version and manifest.supports(version)
+            else manifest.default_release()
+        )
+        return release.dictionary("turbulence")
 
     def closeEvent(self, event) -> None:
         """Reap a running solver before the window goes away (FR-S10, NFR-R6).

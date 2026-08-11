@@ -81,6 +81,7 @@ _UI_TEST_MODULES = (
     "test_preprocessor_view.py",
     "test_run_view.py",
     "test_shell.py",
+    "test_vandv_view.py",
     "test_theme.py",
 )
 
