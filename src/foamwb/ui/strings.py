@@ -394,6 +394,75 @@ def runtime_banner_message(state: str, code: str | None) -> str:
     return f"{text}  ({code})" if code else text
 
 
+def library_strings() -> dict[str, str]:
+    """The content library (§7.8, FR-L1 to FR-L5).
+
+    The refusal messages are the important ones here. A user whose install was
+    rejected has been told something alarming, and §9's E-L01 wording is
+    deliberate: it says what happened and that nothing was installed, without
+    speculating about who did it.
+    """
+    return {
+        "library_heading": _("Library"),
+        "library_intro": _(
+            "Cases you can install and run straight away. Everything here is "
+            "signed and checked before anything is written to your machine."
+        ),
+        "search": _("Search"),
+        "search_placeholder": _("Search cases"),
+        "all_categories": _("All categories"),
+        "all_solvers": _("All solvers"),
+        "install": _("Install"),
+        "installing": _("Installing {0}…"),
+        "installed": _("Installed {0} to {1}."),
+        "open_installed": _("Open it"),
+        "no_matches": _("Nothing matches that search."),
+        "item_meta": _("{0}  ·  {1}"),
+        "item_size": _("{0} KB"),
+        "licence_line": _("{0}, from {1}"),
+        # Version compatibility (FR-L1): marked, never hidden.
+        "compat_yes": _("Works with {0}"),
+        "compat_no": _("Built for a different OpenFOAM release"),
+        "compat_unknown": _("Not tested against your OpenFOAM"),
+        "compat_no_runtime": _("Install OpenFOAM to see whether this fits"),
+        # Failures (§9).
+        "catalog_unavailable": _("The library could not be opened: {0}"),
+        "install_failed_title": _("{0} was not installed"),
+        "install_failed": _("{0}  ({1})"),
+        "verified_note": _("Verified · {0}"),
+        # A composition, so a translator can reorder it (NFR-A5).
+        "item_accessible": _("{0}. {1}"),
+    }
+
+
+def post_strings() -> dict[str, str]:
+    """The Post view (§7.6, FR-V1, FR-V2, FR-V5, FR-P8)."""
+    return {
+        **log_pane_strings(),
+        "post_heading": _("Post-processing"),
+        "no_case_for_post": _("Open a case to work with its results."),
+        "open_in_paraview": _("Open in ParaView"),
+        "inspect_mesh": _("Inspect mesh"),
+        "inspect_mesh_tip": _("Opens the mesh on its own, with edges shown and no results loaded."),
+        "paraview_missing": _("ParaView was not found on this machine."),
+        "paraview_missing_detail": _(
+            "Post-processing opens results in ParaView. Setup can install it, or "
+            "you can point at an existing copy."
+        ),
+        "paraview_found": _("ParaView {0}"),
+        "paraview_opened": _("Opening {0} in ParaView…"),
+        "utilities": _("Utilities"),
+        "run_utility": _("Run"),
+        "utility_argument": _("Patch or field name"),
+        "running_utility": _("Running {0}…"),
+        "utility_wrote": _("{0} wrote {1} files."),
+        "utility_wrote_nothing": _("{0} finished and produced no new files."),
+        "utility_failed": _("{0} failed. The log below says why."),
+        "results_at": _("Latest result: {0}"),
+        "no_results_yet": _("This case has no results yet. Run it first."),
+    }
+
+
 def view_placeholders() -> dict[str, tuple[str, str]]:
     """Title and explanatory body for each view that is not built yet.
 

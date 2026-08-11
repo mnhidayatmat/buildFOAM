@@ -52,7 +52,9 @@ from foamwb.ui.footer import StatusFooter
 from foamwb.ui.navrail import NAV_ITEMS, NavRail
 from foamwb.ui.theme import Palette, stylesheet
 from foamwb.ui.views.hub import HubView
+from foamwb.ui.views.library import LibraryView
 from foamwb.ui.views.placeholder import PlaceholderView
+from foamwb.ui.views.post import PostView
 from foamwb.ui.views.preprocessor import PreprocessorView
 from foamwb.ui.views.run import RunView
 from foamwb.ui.views.vandv import VandVView
@@ -167,6 +169,14 @@ class Shell(QMainWindow):
         self._views["vv"] = self._vandv
         self._stack.addWidget(self._vandv)
 
+        self._post = PostView(self._palette, {**self._strings, **strings.post_strings()})
+        self._views["post"] = self._post
+        self._stack.addWidget(self._post)
+
+        self._library = LibraryView(self._palette, {**self._strings, **strings.library_strings()})
+        self._views["library"] = self._library
+        self._stack.addWidget(self._library)
+
         for item in NAV_ITEMS:
             if item.key in self._views:
                 continue
@@ -182,6 +192,10 @@ class Shell(QMainWindow):
         self._hub.setup_requested.connect(lambda: self.show_view("setup"))
         self._hub.action_triggered.connect(self._on_hub_action)
         self._hub.case_opened.connect(self._on_case_opened)
+        self._post.setup_requested.connect(lambda: self.show_view("setup"))
+        # An installed case is opened straight away: a library that leaves the
+        # user to go and find what it just wrote has done four fifths of the job.
+        self._library.case_installed.connect(self.open_case)
         self._run.run_started.connect(
             lambda: self.set_run_state(self._strings["run_state_running"])
         )
@@ -228,6 +242,10 @@ class Shell(QMainWindow):
 
     def set_openfoam_version(self, version: str | None) -> None:
         self._footer.set_openfoam_version(version)
+        # The library labels each item against the runtime actually in use, so
+        # it has to learn about it from the same setter the footer does — two
+        # sources would eventually disagree about which release is installed.
+        self._library.set_runtime_version(version or None)
 
     @Slot(RuntimeStatus)
     def apply_runtime_status(self, status: RuntimeStatus) -> None:
@@ -428,6 +446,10 @@ class Shell(QMainWindow):
             version=self._runtime.openfoam_version if self._runtime else "",
             dictionary_name=self._turbulence_dictionary(),
         )
+        self._post.set_context(self._session, case.path)
+        # New cases land beside the one just opened, which is where a user who
+        # keeps their work in one folder expects to find them.
+        self._library.set_destination(case.path.parent)
         if self._session is not None:
             self._run.set_context(self._session, case.path, plan)
             self.show_view("run")
@@ -468,6 +490,14 @@ class Shell(QMainWindow):
     @property
     def vandv(self) -> VandVView:
         return self._vandv
+
+    @property
+    def post(self) -> PostView:
+        return self._post
+
+    @property
+    def library(self) -> LibraryView:
+        return self._library
 
     def _turbulence_dictionary(self) -> str:
         """The lineage's name for the turbulence dictionary (NFR-M3, DEC-15).
