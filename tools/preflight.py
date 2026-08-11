@@ -79,6 +79,11 @@ CHECKS: tuple[Check, ...] = (
         why="a literal does not change with the theme, so it is wrong in one of them",
     ),
     Check(
+        name="NFR-R5 works offline",
+        argv=("python", "tools/check_offline.py"),
+        why="a feature that silently needs the network hangs where it is hardest to diagnose",
+    ),
+    Check(
         name="§13.5 third-party notices are current",
         argv=("python", "tools/notices.py", "--check"),
         why="shipping someone's code without their notice is easy to avoid and easy to commit",
