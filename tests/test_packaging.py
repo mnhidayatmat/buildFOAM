@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from foamwb.services.uninstall import (
     RemovalKind,
     UninstallItem,
@@ -221,3 +223,133 @@ class TestThePackagingSpec:
         """A spec expecting a signing identity cannot be built by a contributor
         who does not have one."""
         assert "codesign_identity=None" in self._spec()
+
+
+class TestTheRuntimeCanHoldTheWork:
+    """FR-R9 — on Windows the cases are *inside* the thing being removed.
+
+    Cases live on the distro's ext4, inside its VHDX, so `wsl --unregister`
+    takes them with it. This is the default layout there, not an edge case: it
+    is what DEC-05 and DEC-12 cost together.
+    """
+
+    def _windows_shaped_plan(self) -> UninstallPlan:
+        return UninstallPlan(
+            items=[
+                UninstallItem(
+                    path=Path("wsl://Distro"),
+                    kind=RemovalKind.RUNTIME_HOLDING_WORK,
+                    label="d",
+                ),
+                UninstallItem(
+                    path=Path("/tmp/state"), kind=RemovalKind.APPLICATION_STATE, label="s"
+                ),
+            ]
+        )
+
+    def test_such_a_runtime_is_reported_separately(self) -> None:
+        plan = self._windows_shaped_plan()
+        assert plan.blocked
+        assert plan.offered == []
+
+    def test_an_export_is_required_first(self) -> None:
+        assert self._windows_shaped_plan().needs_export
+
+    def test_nothing_at_all_is_removed_until_it_happens(self) -> None:
+        """Refused rather than warned about: unregister has no undo to offer."""
+        assert perform(self._windows_shaped_plan()) == []
+
+    def test_the_block_lifts_once_the_cases_are_out(self) -> None:
+        plan = self._windows_shaped_plan()
+        plan.cases_exported = True
+        assert not plan.needs_export
+
+    def test_it_is_a_state_and_not_a_consent(self) -> None:
+        """A user who has decided to uninstall will click through a warning.
+
+        There is deliberately no "proceed anyway": the flag records that the
+        export *happened*, which is a fact, not a preference.
+        """
+        plan = self._windows_shaped_plan()
+        assert isinstance(plan.cases_exported, bool)
+        assert not plan.cases_exported
+
+
+class TestLabConfiguration:
+    """FR-R7 and FR-R8 — §14's two hundred machines and no admin rights."""
+
+    def _write(self, tmp_path, obj) -> Path:
+        path = tmp_path / "lab.json"
+        path.write_text(json.dumps(obj))
+        return path
+
+    def test_a_pre_provisioned_runtime_is_adopted(self, tmp_path) -> None:
+        from foamwb.services.labconfig import adoption_status, load_lab_config
+
+        config = load_lab_config(
+            self._write(
+                tmp_path,
+                {"adopt_runtime": True, "bashrc": "/opt/of/etc/bashrc", "distro": "Lab"},
+            )
+        )
+        assert config.adopt_runtime
+        assert adoption_status(config, exists=True).usable
+
+    def test_silent_mode_is_carried(self, tmp_path) -> None:
+        from foamwb.services.labconfig import load_lab_config
+
+        assert load_lab_config(self._write(tmp_path, {"silent": True})).silent
+
+    def test_adopting_nothing_is_refused(self, tmp_path) -> None:
+        """ "Adopt" with no path is a configuration that cannot be satisfied."""
+        from foamwb.services.labconfig import LabConfigError, load_lab_config
+
+        with pytest.raises(LabConfigError):
+            load_lab_config(self._write(tmp_path, {"adopt_runtime": True}))
+
+    def test_a_missing_runtime_is_reported_not_worked_around(self, tmp_path) -> None:
+        """The same wrong file is on every machine in the room."""
+        from foamwb.services.labconfig import adoption_status, load_lab_config
+
+        config = load_lab_config(
+            self._write(tmp_path, {"adopt_runtime": True, "bashrc": "/nope/bashrc"})
+        )
+        status = adoption_status(config, exists=False)
+        assert not status.usable
+        assert status.code is not None
+
+    @pytest.mark.parametrize(
+        "key",
+        ["skip_signature_check", "allow_unsigned_content", "disable_verification", "public_key"],
+    )
+    def test_safety_cannot_be_configured_away(self, tmp_path, key: str) -> None:
+        """An administrator installing for two hundred students is exactly the
+        person who must not be able to disable verification for them."""
+        from foamwb.services.labconfig import LabConfigError, load_lab_config
+
+        with pytest.raises(LabConfigError) as caught:
+            load_lab_config(self._write(tmp_path, {key: True}))
+        assert caught.value.code.id == "E-L01"
+
+    def test_telemetry_is_off_unless_stated(self, tmp_path) -> None:
+        """§7.3 step 1 — opt-in, and never enabled by omission."""
+        from foamwb.services.labconfig import load_lab_config
+
+        assert not load_lab_config(self._write(tmp_path, {})).telemetry
+
+    def test_a_malformed_file_names_the_line(self, tmp_path) -> None:
+        from foamwb.services.labconfig import LabConfigError, load_lab_config
+
+        path = tmp_path / "lab.json"
+        path.write_text("{ truncated")
+        with pytest.raises(LabConfigError) as caught:
+            load_lab_config(path)
+        assert "line" in caught.value.message
+
+    def test_a_missing_file_does_not_fall_back_silently(self, tmp_path) -> None:
+        """A managed install that quietly became a manual one would stop two
+        hundred machines at the first administrator prompt, without saying why."""
+        from foamwb.services.labconfig import LabConfigError, load_lab_config
+
+        with pytest.raises(LabConfigError):
+            load_lab_config(tmp_path / "absent.json")

@@ -17,6 +17,19 @@ cask is not part of this application, may have been there first, and may be
 shared with other work — but it is also gigabytes that a user uninstalling would
 reasonably expect to reclaim. So it is listed with its size and left to them.
 
+**On Windows, removing the runtime destroys the cases** (FR-R9, and the price
+DEC-12 and DEC-05 charge together). Cases live on the distro's ext4 filesystem,
+which is inside the distro's VHDX, so ``wsl --unregister`` takes them with it.
+The user's work is not somewhere else on that platform — it is *inside the thing
+being removed*, and the classification above would be a promise this module could
+not keep.
+
+So a runtime that holds cases is marked as holding them, and
+:func:`perform` refuses to remove it until they have been exported. Not a warning
+with a proceed button: the whole failure mode is a user who has already decided
+to uninstall and is clicking through. The block lifts when the export has
+happened, which is a state rather than a consent.
+
 Everything here is a *plan* first. Nothing is deleted until a caller acts on a
 plan it has been shown, which is the same rule the provisioner follows (§7.3
 step 4) and for the same reason.
@@ -28,6 +41,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
+from foamwb.branding import WSL_DISTRO_NAME
 from foamwb.logs import Event, get_logger, log_event
 
 __all__ = [
@@ -54,6 +68,13 @@ class RemovalKind(StrEnum):
     """OpenFOAM itself. Large, possibly shared, possibly pre-existing: listed
     with its size and left to the user to decide."""
 
+    RUNTIME_HOLDING_WORK = "runtime_holding_work"
+    """A runtime whose removal would take the user's cases with it (FR-R9).
+
+    Windows only, and not an edge case: it is the *default* layout there, because
+    DEC-05 keeps cases off ``/mnt/c`` for performance and DEC-12 gives them a
+    distribution of their own. Removal is refused until the cases are exported."""
+
 
 @dataclass(frozen=True, slots=True)
 class UninstallItem:
@@ -78,6 +99,13 @@ class UninstallPlan:
 
     items: list[UninstallItem] = field(default_factory=list)
 
+    cases_exported: bool = False
+    """Set once the cases inside the runtime have been copied out (FR-R9).
+
+    A state, not a consent. The user cannot agree their way past this, because
+    the failure mode is precisely a user who has already decided to uninstall
+    and is clicking through the dialogs."""
+
     @property
     def removed(self) -> list[UninstallItem]:
         return [i for i in self.items if i.is_removed and i.exists]
@@ -90,6 +118,16 @@ class UninstallPlan:
     @property
     def offered(self) -> list[UninstallItem]:
         return [i for i in self.items if i.kind is RemovalKind.RUNTIME and i.exists]
+
+    @property
+    def blocked(self) -> list[UninstallItem]:
+        """Runtimes that cannot be removed yet because they hold the work."""
+        return [i for i in self.items if i.kind is RemovalKind.RUNTIME_HOLDING_WORK and i.exists]
+
+    @property
+    def needs_export(self) -> bool:
+        """Whether an export must happen before the runtime can go (FR-R9)."""
+        return bool(self.blocked) and not self.cases_exported
 
     @property
     def freed_bytes(self) -> int:
@@ -153,8 +191,20 @@ def plan_uninstall(*, include_sizes: bool = True) -> UninstallPlan:
     add(paths.user_data_dir, RemovalKind.APPLICATION_STATE, "uninstall_settings")
     add(paths.log_dir, RemovalKind.APPLICATION_STATE, "uninstall_logs")
     add(paths.cache_dir, RemovalKind.APPLICATION_STATE, "uninstall_cache")
-    add(paths.macos_cases_dir, RemovalKind.USER_WORK, "uninstall_cases")
-    add(paths.macos_content_dir, RemovalKind.USER_WORK, "uninstall_content")
+    if paths.current_platform() == paths.Platform.WINDOWS:
+        # The cases are *inside* the distribution here, so the runtime is not a
+        # separate thing the user can weigh up independently (FR-R9).
+        plan.items.append(
+            UninstallItem(
+                path=Path(f"wsl://{WSL_DISTRO_NAME}"),
+                kind=RemovalKind.RUNTIME_HOLDING_WORK,
+                label="uninstall_distro",
+                exists=True,
+            )
+        )
+    else:
+        add(paths.macos_cases_dir, RemovalKind.USER_WORK, "uninstall_cases")
+        add(paths.macos_content_dir, RemovalKind.USER_WORK, "uninstall_content")
     return plan
 
 
@@ -167,6 +217,12 @@ def perform(plan: UninstallPlan, *, dry_run: bool = False) -> list[Path]:
     rather than an apology.
     """
     import shutil
+
+    if plan.needs_export:
+        # FR-R9. Refused rather than warned about: `wsl --unregister` is not
+        # recoverable, and there is no undo to offer afterwards.
+        log_event(_log, Event.ERROR_RAISED, where="uninstall", error="cases-not-exported")
+        return []
 
     removed: list[Path] = []
     for item in plan.items:
