@@ -6,6 +6,7 @@ from foamwb.services.run.controller import (
     RunResult,
     StageResult,
     StopMode,
+    build_plan,
 )
 from foamwb.services.run.plan import RunPlan, Severity, Stage, StageState
 
@@ -19,4 +20,5 @@ __all__ = [
     "StageResult",
     "StageState",
     "StopMode",
+    "build_plan",
 ]

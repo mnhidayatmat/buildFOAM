@@ -87,15 +87,25 @@ CHECKS: tuple[Check, ...] = (
 )
 
 
-def run(check: Check) -> tuple[bool, float]:
+def run(check: Check, *, quiet: bool) -> tuple[bool, float]:
+    """Run one check.
+
+    Output streams by default rather than being captured. A captured run shows
+    nothing at all while a check hangs, which turns "which test is stuck?" into a
+    guessing game — the failure mode this script exists to make cheap.
+    """
     started = time.monotonic()
     completed = subprocess.run(
-        [*check.argv], cwd=REPO_ROOT, check=False, capture_output=True, text=True
+        [*check.argv],
+        cwd=REPO_ROOT,
+        check=False,
+        text=True,
+        capture_output=quiet,
     )
     elapsed = time.monotonic() - started
-    if completed.returncode != 0:
-        sys.stdout.write(completed.stdout)
-        sys.stderr.write(completed.stderr)
+    if quiet and completed.returncode != 0:
+        sys.stdout.write(completed.stdout or "")
+        sys.stderr.write(completed.stderr or "")
     return completed.returncode == 0, elapsed
 
 
@@ -105,6 +115,11 @@ def main() -> int:
         "--fast",
         action="store_true",
         help="skip checks that run a real solver",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="hide output from passing checks (hides progress while they run)",
     )
     arguments = parser.parse_args()
 
@@ -116,13 +131,13 @@ def main() -> int:
     width = max(len(c.name) for c in checks)
 
     for check in checks:
-        print(f"  {check.name:<{width}} ... ", end="", flush=True)
-        passed, elapsed = run(check)
+        print(f"\n=== {check.name} " + "=" * max(0, width - len(check.name)), flush=True)
+        passed, elapsed = run(check, quiet=arguments.quiet)
         if not passed:
-            print(f"FAILED  ({elapsed:.1f}s)")
-            print(f"\n{check.name} guards: {check.why}")
+            print(f"--- {check.name}: FAILED after {elapsed:.1f}s")
+            print(f"    this guards: {check.why}")
             return 1
-        print(f"ok      ({elapsed:.1f}s)")
+        print(f"--- {check.name}: ok ({elapsed:.1f}s)")
 
     print("\nAll checks passed.")
     if arguments.fast:

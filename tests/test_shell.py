@@ -44,6 +44,14 @@ DEGRADED = RuntimeStatus(
 def shell(qtbot) -> Shell:
     window = Shell(LIGHT)
     qtbot.addWidget(window)
+    # Modal dialogs block their thread until a human answers, so a test that
+    # reached one would hang rather than fail — and the paths users take most
+    # would be the paths never exercised. Both are replaced with recorders.
+    window.dialogs_shown = []
+    window.set_dialogs(
+        choose_directory=lambda _title: None,
+        report=lambda title, body: window.dialogs_shown.append((title, body)),
+    )
     return window
 
 
@@ -238,10 +246,18 @@ class TestHub:
     def test_no_action_button_is_inert(self, shell: Shell, qtbot) -> None:
         # FR-A1: every target reachable in one click. A button wired to nothing
         # would pass a smoke test while being useless.
+        asked: list[str] = []
+        shell.set_dialogs(choose_directory=lambda title: asked.append(title))
+
         for key, _primary in shell.hub.ACTIONS:
             shell.show_view("hub")
             qtbot.mouseClick(shell.hub.action_button(key), Qt.MouseButton.LeftButton)
-            assert shell.current_view != "hub", f"{key} did nothing"
+            if key == "open_case":
+                # Cancelling deliberately leaves the view alone; what matters is
+                # that the button asked.
+                assert asked, "Open Case did not ask for a folder"
+            else:
+                assert shell.current_view != "hub", f"{key} did nothing"
 
     def test_empty_state_explains_what_to_do(self, shell: Shell) -> None:
         shell.set_recent_cases([])
@@ -278,10 +294,23 @@ class TestHub:
         assert "137" not in text
         assert "failed" in text
 
-    def test_activating_a_recent_case_opens_it(self, shell: Shell) -> None:
-        shell.set_recent_cases([RecentCase(Path("/cases/pitzDaily"))])
+    def test_activating_a_recent_case_opens_it(self, shell: Shell, tmp_path) -> None:
+        # A real directory, because activating a recent case now genuinely opens
+        # it rather than only relabelling the footer.
+        case = tmp_path / "pitzDaily"
+        (case / "system").mkdir(parents=True)
+        (case / "system" / "controlDict").write_text("application simpleFoam;\n")
+
+        shell.set_recent_cases([RecentCase(case)])
         shell.hub._recent_list.itemActivated.emit(shell.hub._recent_list.item(0))
         assert shell.footer.case_text == "pitzDaily"
+
+    def test_opening_a_folder_that_is_not_a_case_is_reported(self, shell: Shell, tmp_path) -> None:
+        # E-C01. The user picked the wrong folder, which is an ordinary mistake:
+        # it must be said plainly and must not disturb what is already open.
+        shell.open_case(tmp_path)
+        assert shell.dialogs_shown
+        assert "No case" in shell.footer.case_text
 
 
 class TestRuntimeBanner:

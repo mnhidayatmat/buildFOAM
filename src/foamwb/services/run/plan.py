@@ -17,23 +17,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import IntEnum, StrEnum
+from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
+from foamwb.codes import Severity
+
 __all__ = ["RunPlan", "Severity", "Stage", "StageState"]
-
-
-class Severity(IntEnum):
-    """Severity of a finding parsed out of a stage's output.
-
-    Ordered, so that ``fail_on`` is a threshold rather than an exact match:
-    ``fail_on=Severity.WARNING`` also fails on an error.
-    """
-
-    INFO = 10
-    WARNING = 20
-    ERROR = 30
-    FATAL = 40
 
 
 class StageState(StrEnum):

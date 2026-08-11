@@ -34,10 +34,10 @@ from foamwb.branding import (
     CASE_METADATA_DIR,
     CASE_METADATA_FILE,
 )
-from foamwb.codes import Code, ErrorCode
+from foamwb.codes import Code, ErrorCode, Severity
 from foamwb.logs import Event, get_logger, log_event
+from foamwb.services import fence
 from foamwb.services.foamdict import Document, ParseError
-from foamwb.services.run.plan import Severity
 
 __all__ = [
     "Case",
@@ -268,6 +268,17 @@ def _as_time(name: str) -> float | None:
         return None
 
 
+def _write_atomically(target: Path, data: bytes) -> None:
+    """Write via a temporary file and rename (NFR-R2).
+
+    A crash mid-write must never truncate a case file. Rename is atomic on both
+    supported platforms, so the file is either the old one or the new one.
+    """
+    temporary = target.with_suffix(target.suffix + ".tmp")
+    temporary.write_bytes(data)
+    temporary.replace(target)
+
+
 def _is_definition_file(case: Path, path: Path) -> bool:
     """Whether a file is part of the case definition and so contributes to the hash."""
     try:
@@ -463,6 +474,75 @@ class CaseService:
     def accept_external_changes(self, case: Case) -> None:
         """Adopt the case as it now is on disk — FR-C4's "Keep mine"."""
         self.write_metadata(case)
+
+    # -- monitoring --------------------------------------------------------
+
+    def solved_fields(self, case: Case) -> tuple[str, ...]:
+        """Field names to hand to ``solverInfo`` (FR-S3).
+
+        Taken from the initial-condition directory, because that is what the case
+        itself declares it solves for — ``icoFoam`` has ``U`` and ``p``,
+        ``interFoam`` has ``U``, ``p_rgh`` and ``alpha.water``. Hard-coding a set
+        per solver would need a table that goes stale with every OpenFOAM release
+        and would be wrong for any custom solver, which is exactly what NFR-M3
+        exists to prevent.
+
+        Naming a field the solver does not solve is harmless: ``solverInfo``
+        simply reports no columns for it.
+        """
+        for directory in ("0", "0.orig"):
+            source = case.path / directory
+            if source.is_dir():
+                return tuple(
+                    sorted(
+                        entry.name
+                        for entry in source.iterdir()
+                        if entry.is_file() and not entry.name.startswith(".")
+                    )
+                )
+        return ()
+
+    def enable_monitoring(self, case: Case) -> bool:
+        """Install the residual-monitoring fence in ``controlDict`` (FR-S3).
+
+        Done at *run* time rather than at open: opening someone else's case must
+        not modify it (§5.1), while a user who pressed Run has asked for the run
+        and its monitoring. The block is fenced, self-describing and reversible
+        (NFR-C3), and removing it leaves the file byte-identical.
+
+        Returns whether anything was written, so a caller can say what it did.
+        """
+        fields = self.solved_fields(case)
+        if not fields:
+            return False
+
+        control = case.path / CONTROL_DICT
+        original = control.read_bytes()
+        updated = fence.install(original.decode("utf-8"), fence.solver_info_block(fields)).encode(
+            "utf-8"
+        )
+        if updated == original:
+            return False
+
+        _write_atomically(control, updated)
+        case.tree_hash = self.tree_hash(case.path)
+        if case.metadata is not None:
+            self.write_metadata(case)
+        return True
+
+    def disable_monitoring(self, case: Case) -> bool:
+        """Remove the fence, restoring ``controlDict`` byte-for-byte (FR-C5)."""
+        control = case.path / CONTROL_DICT
+        original = control.read_bytes()
+        updated = fence.remove(original.decode("utf-8")).encode("utf-8")
+        if updated == original:
+            return False
+
+        _write_atomically(control, updated)
+        case.tree_hash = self.tree_hash(case.path)
+        if case.metadata is not None:
+            self.write_metadata(case)
+        return True
 
     # -- initial conditions ------------------------------------------------
 

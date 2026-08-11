@@ -69,9 +69,91 @@ def shell_strings() -> dict[str, str]:
         "action_case_folder": _("Case Folder"),
         "action_settings": _("Settings"),
         "toggle_nav_rail": _("Collapse navigation"),
+        "choose_case": _("Choose an OpenFOAM case folder"),
+        "not_a_case_title": _("That folder is not an OpenFOAM case"),
+        "case_opened": _("Opened {0}"),
+        "cannot_plan_title": _("This case cannot be run yet"),
+        "restored_initial": _(
+            "Copied 0.orig to 0, as this case ships its initial conditions that way."
+        ),
+        "no_runtime_title": _("OpenFOAM is not ready"),
+        "no_runtime_body": _(
+            "A case can be opened, but running one needs a working OpenFOAM. Setup will install it."
+        ),
+        "run_state_running": _("running"),
         # Compositions, kept translatable so their parts can be reordered.
         "nav_item": _("{0}  {1}"),
         "nav_tooltip": _("{0}  ({1})"),
+    }
+
+
+def run_strings() -> dict[str, str]:
+    """The Run view (§7.5).
+
+    Stop actions name their consequence rather than only their mechanism: "Stop
+    Now" means nothing to P1, while "may leave an incomplete result" is the fact
+    that decides whether they want it (NFR-A6).
+    """
+    return {
+        "no_plan": _("No run planned yet."),
+        "no_case_for_run": _("Open a case to run it."),
+        "ready_to_run": _("{0} is ready to run."),
+        "run": _("Run"),
+        "log": _("Solver log"),
+        "monitors": _("Monitors"),
+        "residuals": _("Residuals"),
+        "search_log": _("Search the log"),
+        "find_next": _("Find next"),
+        "jump_to_error": _("Jump to error"),
+        "follow_output": _("Follow output"),
+        "log_status": _("{0} lines, {1} flagged"),
+        "axis_time": _("Time"),
+        "axis_residual": _("Initial residual"),
+        "residual_plot": _("Residual plot"),
+        "no_monitor_data": _("Residuals appear here once the solver starts writing them."),
+        "log_scale": _("Log scale"),
+        "export_csv": _("Export CSV"),
+        "exported_csv": _("Exported to {0}."),
+        # Stage states, so the strip reads in words as well as glyphs (NFR-A2).
+        "stage_pending": _("waiting"),
+        "stage_running": _("running"),
+        "stage_succeeded": _("done"),
+        "stage_failed": _("failed"),
+        "stage_skipped": _("skipped"),
+        "stage_cancelled": _("stopped"),
+        # Compositions, translatable so a right-to-left locale can reorder them.
+        "stage_chip": _("{0}  {1}"),
+        "stage_accessible": _("{0}: {1}"),
+        "running_stage": _("Running {0}…"),
+        "run_succeeded": _("Finished in {0:.1f} s."),
+        "run_failed": _("Run failed after {0:.1f} s."),
+        "run_stopped": _("Stopped after {0:.1f} s."),
+        "run_failed_at": _("Run failed at {0} ({1})."),
+        "run_error": _("The run could not start: {0}"),
+        # The three-level stop (FR-S5, DEC-14).
+        "stop_write": _("Stop && Write"),
+        "stop_write_tip": _(
+            "Ask the solver to write the current time and stop cleanly. "
+            "The result stays complete and can be reloaded."
+        ),
+        "stop_now": _("Stop Now"),
+        "stop_now_tip": _("Signal the solver to quit. The last write may be incomplete."),
+        "stop_kill": _("Force Kill"),
+        "stop_kill_tip": _("End the process immediately. Anything being written is lost."),
+        "stopping_write": _("Asking the solver to write and stop…"),
+        "stopping_terminate": _("Stopping the solver…"),
+        "stopping_kill": _("Ending the solver…"),
+        "confirm_stop_title": _("Stop this run?"),
+        "confirm_terminate": _(
+            "Stopping now can leave an incomplete final result, which ParaView "
+            "may not be able to open.\n\nStop & Write finishes the current step "
+            "first and is usually what you want."
+        ),
+        "confirm_kill": _(
+            "Force Kill ends the solver immediately. Anything it was writing at "
+            "that moment is lost, and the case may need cleaning before it can "
+            "run again.\n\nUse this only if the solver has stopped responding."
+        ),
     }
 
 

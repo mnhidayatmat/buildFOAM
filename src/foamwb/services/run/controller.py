@@ -29,10 +29,18 @@ from pathlib import Path, PurePosixPath
 
 from foamwb.codes import Code, ErrorCode
 from foamwb.logs import Event, get_logger, log_event
+from foamwb.services.case import Case
 from foamwb.services.run.plan import RunPlan, Severity, Stage, StageState
 from foamwb.services.runtime.session import RuntimeSession
 
-__all__ = ["RunController", "RunOutcome", "RunResult", "StageResult", "StopMode"]
+__all__ = [
+    "RunController",
+    "RunOutcome",
+    "RunResult",
+    "StageResult",
+    "StopMode",
+    "build_plan",
+]
 
 _log = get_logger("run.controller")
 
@@ -113,6 +121,60 @@ def classify(line: str) -> Severity | None:
         if marker in line:
             return severity
     return None
+
+
+def build_plan(case: Case, *, n_procs: int = 1) -> RunPlan:
+    """Compose the default plan for a case (§4.2's ``plan(case, options)``).
+
+    Stages are included on evidence rather than by template: ``blockMesh`` only
+    when there is a ``blockMeshDict`` to run it on, ``setFields`` only when the
+    case defines one. A plan that named stages the case cannot support would fail
+    at the first one and teach the user nothing about their case.
+
+    ``checkMesh`` always runs and always gates the solver. It costs seconds and
+    catches the mesh errors that would otherwise surface as a diverged run twenty
+    minutes later, which is a much worse way to learn the same fact (E-S02).
+
+    Raises :class:`ValueError` when ``controlDict`` names no application: without
+    a solver there is nothing to plan, and guessing one would run the wrong
+    physics silently.
+    """
+    if not case.application:
+        raise ValueError(
+            f"{case.name} does not name an application in system/controlDict, "
+            "so there is no solver to run."
+        )
+
+    stages: list[Stage] = []
+    system = case.path / "system"
+
+    if (system / "blockMeshDict").is_file() or (
+        case.path / "constant" / "polyMesh" / "blockMeshDict"
+    ).is_file():
+        stages.append(Stage("blockMesh", argv=("blockMesh",)))
+
+    stages.append(Stage("checkMesh", argv=("checkMesh",), fail_on=Severity.ERROR))
+
+    if (system / "setFieldsDict").is_file():
+        # Initial conditions for multiphase cases. After the mesh exists, since it
+        # sets values on cells.
+        stages.append(Stage("setFields", argv=("setFields",)))
+
+    if n_procs > 1:
+        stages.append(Stage("decomposePar", argv=("decomposePar",), when=lambda p: p.n_procs > 1))
+
+    stages.append(Stage("solve", argv=(case.application,), parallel=True, monitored=True))
+
+    if n_procs > 1:
+        stages.append(
+            Stage(
+                "reconstructPar",
+                argv=("reconstructPar",),
+                when=lambda p: p.n_procs > 1,
+            )
+        )
+
+    return RunPlan(case=case.path, stages=tuple(stages), n_procs=n_procs)
 
 
 class RunController:

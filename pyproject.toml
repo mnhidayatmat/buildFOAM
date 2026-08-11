@@ -30,7 +30,15 @@ classifiers = [
 # headlessly by the test suite and could later back a CLI (NFR-M1, §4.1). Qt is
 # an application dependency, confined to src/foamwb/ui/ and enforced by
 # tools/check_no_qt.py. Pinned by hash at packaging time per §10.2.
-dependencies = ["PySide6>=6.9,<7"]
+dependencies = [
+  "PySide6>=6.9,<7",
+  # Live plotting, per §13.2's anticipated choice. pyqtgraph over matplotlib
+  # because it is Qt-native and built for streaming data: NFR-P4 gives 500 ms
+  # from a .dat write to the plot updating, which matplotlib's redraw cost makes
+  # awkward at the point where it matters most — a long run with many series.
+  # It is also a fifth of the size, which NFR-P8's installer budget notices.
+  "pyqtgraph>=0.13",
+]
 
 [project.scripts]
 # The entry point lives in the presentation layer because it constructs a
@@ -82,6 +90,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
+# Qt's event handlers are camelCase because they override Qt's own methods.
+# Renaming them would simply stop them being called.
+"src/foamwb/ui/*" = ["N802"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["foamwb"]

@@ -18,9 +18,28 @@ module holds the stable machine vocabulary that survives translation.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import IntEnum
 from typing import Final
 
-__all__ = ["Code", "ErrorCode", "by_id"]
+__all__ = ["Code", "ErrorCode", "Severity", "by_id"]
+
+
+class Severity(IntEnum):
+    """How bad a finding or a parsed output line is.
+
+    Lives here rather than with the run plan because it is diagnostic
+    vocabulary: a validation finding (FR-C3), a ``checkMesh`` verdict (E-S02) and
+    a solver log line are all graded on one scale, and a case that had two scales
+    would eventually disagree with itself about whether something blocks a run.
+
+    Ordered, so a threshold is a comparison rather than a set membership test:
+    ``fail_on=Severity.WARNING`` also fails on an error.
+    """
+
+    INFO = 10
+    WARNING = 20
+    ERROR = 30
+    FATAL = 40
 
 
 @dataclass(frozen=True, slots=True)

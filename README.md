@@ -4,7 +4,7 @@
 
 > BuildFOAM is not approved or endorsed by OpenCFD Limited, producer and distributor of the OpenFOAM software via www.openfoam.com, and owner of the OPENFOAM® and OpenCFD® trade marks.
 
-**Status: M2 in progress — the service layer is complete.** It detects and provisions a real OpenFOAM runtime, opens and classifies cases, injects monitoring, runs `blockMesh` → `checkMesh` → solver with live log streaming, reads residuals back from `postProcessing`, and locates ParaView. Both numerical gates pass: §12.2's round-trip corpus and §12.3's golden-case regression. The shell launches (`uv run buildfoam`) but none of this is wired to it yet — the Run view is what remains. The specification is [`docs/PRD-v1.0.md`](docs/PRD-v1.0.md).
+**Status: M2 complete.** `uv run buildfoam` opens a case, builds its run plan, executes it with the solver log streaming live, and plots residuals as they converge. Both numerical gates pass: §12.2's round-trip corpus and §12.3's golden-case regression. Next is the preprocessor — form editors and the boundary-condition matrix (M4). The specification is [`docs/PRD-v1.0.md`](docs/PRD-v1.0.md).
 
 ---
 
@@ -27,6 +27,7 @@ src/foamwb/            Application. The import package is deliberately not named
     foamdict/document.py Tolerant parser + round-trip-faithful editing API
     run/plan.py          RunPlan / Stage — the §4.3 abstraction
     run/controller.py    Executes a plan, streams output (FR-S1, FR-S5)
+                         and build_plan() composes one from a case
     runtime/manifest.py  §3.4 version policy, read from data/
     runtime/manager.py   Detection + the canary (FR-R1, FR-R5)
     runtime/native.py    NativeSession — macOS, via the bundle launcher
@@ -37,6 +38,10 @@ src/foamwb/            Application. The import package is deliberately not named
     theme.py             Light/dark tokens; contrast verified against WCAG AA
     strings.py           The translatable string catalogue (NFR-A5)
     shell.py             Nav rail + view stack + status footer (§7.1)
+    probe.py             Off-thread runtime detection (NFR-P1)
+    run_worker.py        Runs a plan off the GUI thread, batching output
+    views/run.py         The Run view (§7.5)
+    widgets/             Stage strip, log pane, residual plot
 tools/                 The four CI guards + the corpus vendoring tool
 tests/corpus/          368 dictionaries from 23 tutorial cases, pinned to v2512
 tests/                 pytest suite, including tests of the guards themselves

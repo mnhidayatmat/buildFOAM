@@ -12,11 +12,15 @@ from another.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QFileDialog,
     QHBoxLayout,
     QMainWindow,
+    QMessageBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -25,14 +29,17 @@ from PySide6.QtWidgets import (
 from foamwb.branding import APP_DISPLAY_NAME
 from foamwb.codes import ErrorCode
 from foamwb.logs import Event, get_logger, log_event
+from foamwb.services.case import CaseError, CaseService
 from foamwb.services.recents import RecentCase
-from foamwb.services.runtime import RuntimeState, RuntimeStatus
+from foamwb.services.run import build_plan
+from foamwb.services.runtime import RuntimeManager, RuntimeState, RuntimeStatus
 from foamwb.ui import strings
 from foamwb.ui.footer import StatusFooter
 from foamwb.ui.navrail import NAV_ITEMS, NavRail
 from foamwb.ui.theme import Palette
 from foamwb.ui.views.hub import HubView
 from foamwb.ui.views.placeholder import PlaceholderView
+from foamwb.ui.views.run import RunView
 
 __all__ = ["Shell"]
 
@@ -46,6 +53,7 @@ class Shell(QMainWindow):
         super().__init__(parent)
         self._strings = strings.shell_strings()
         self._placeholders = strings.view_placeholders()
+        self._palette = palette
 
         self.setWindowTitle(APP_DISPLAY_NAME)
         self.setMinimumSize(960, 640)
@@ -57,6 +65,18 @@ class Shell(QMainWindow):
         )
         self._stack = QStackedWidget()
         self._footer = StatusFooter(palette)
+
+        self._cases = CaseService()
+        self._runtime: RuntimeStatus | None = None
+        self._session = None
+
+        # How the user is asked for a folder, and how they are told something
+        # went wrong. Injectable because a modal dialog blocks its thread until a
+        # human answers: with these hard-coded, no test could press "Open Case"
+        # without hanging forever, and the one path a user takes most would be
+        # the one path never exercised.
+        self._choose_directory = self._ask_for_directory
+        self._report = self._show_message
 
         self._views: dict[str, QWidget] = {}
         self._build_views()
@@ -100,8 +120,12 @@ class Shell(QMainWindow):
         self._views["hub"] = self._hub
         self._stack.addWidget(self._hub)
 
+        self._run = RunView(self._palette, {**self._strings, **strings.run_strings()})
+        self._views["run"] = self._run
+        self._stack.addWidget(self._run)
+
         for item in NAV_ITEMS:
-            if item.key == "hub":
+            if item.key in self._views:
                 continue
             title, detail = self._placeholders[item.key]
             view = PlaceholderView(title, detail)
@@ -114,6 +138,10 @@ class Shell(QMainWindow):
         self._hub.setup_requested.connect(lambda: self.show_view("setup"))
         self._hub.action_triggered.connect(self._on_hub_action)
         self._hub.case_opened.connect(self._on_case_opened)
+        self._run.run_started.connect(
+            lambda: self.set_run_state(self._strings["run_state_running"])
+        )
+        self._run.run_finished.connect(self._on_run_finished)
 
     def _install_shortcuts(self) -> None:
         # Ctrl+B collapses the rail, matching the convention users already have
@@ -147,6 +175,7 @@ class Shell(QMainWindow):
         above a banner saying *not installed* would undermine the one guarantee
         §7.9 makes about the footer.
         """
+        self._runtime = status
         self._footer.set_runtime_status(status)
         message = strings.runtime_banner_message(
             status.state.value, status.reason.id if status.reason else None
@@ -166,6 +195,15 @@ class Shell(QMainWindow):
         """
         self.set_runtime_status(status)
         self.set_openfoam_version(status.openfoam_version)
+
+        # A usable runtime means a session the Run view can execute against.
+        # Held here because the shell owns which case is open, and the two have
+        # to be handed over together.
+        if status.is_usable:
+            manager = RuntimeManager()
+            installations = manager.discover()
+            if installations:
+                self._session = manager.session_for(installations[0])
 
     def set_active_case(self, case_name: str | None) -> None:
         self._footer.set_case(case_name)
@@ -188,6 +226,9 @@ class Shell(QMainWindow):
         nothing would make the Hub's buttons dead on arrival, which FR-A1's
         "every target reachable in one click" forbids.
         """
+        if action == "open_case":
+            self.open_case_dialog()
+            return
         destinations = {"library": "library", "guide": "guide", "settings": "setup"}
         if action in destinations:
             self.show_view(destinations[action])
@@ -196,8 +237,79 @@ class Shell(QMainWindow):
 
     @Slot(RecentCase)
     def _on_case_opened(self, case: RecentCase) -> None:
+        self.open_case(case.path)
+
+    def _on_run_finished(self, _result) -> None:
+        # Back to idle whatever the outcome. The footer reports *what the
+        # application is doing*, and the Run view already says how it went — two
+        # places claiming to own the verdict is how they end up disagreeing.
+        self.set_run_state(None)
+
+    # -- opening a case ----------------------------------------------------
+
+    def open_case_dialog(self) -> None:
+        """Ask for a folder and open it. Cancelling changes nothing."""
+        directory = self._choose_directory(self._strings["choose_case"])
+        if directory is not None:
+            self.open_case(directory)
+
+    def _ask_for_directory(self, title: str) -> Path | None:
+        chosen = QFileDialog.getExistingDirectory(self, title)
+        return Path(chosen) if chosen else None
+
+    def _show_message(self, title: str, body: str) -> None:
+        QMessageBox.warning(self, title, body)
+
+    def set_dialogs(
+        self,
+        *,
+        choose_directory=None,
+        report=None,
+    ) -> None:
+        """Replace the modal dialogs, for tests and for scripted runs."""
+        if choose_directory is not None:
+            self._choose_directory = choose_directory
+        if report is not None:
+            self._report = report
+
+    def open_case(self, path: Path) -> None:
+        """Open a case, build its plan, and show it in the Run view.
+
+        Every failure here is reported and survivable. Opening a folder that is
+        not a case, or one whose controlDict names no solver, is an ordinary
+        mistake — the user picked the wrong directory — and must not leave the
+        application in a state where the previous case has been forgotten and no
+        new one has been adopted.
+        """
+        try:
+            case = self._cases.open(path)
+        except CaseError as exc:
+            self._report(self._strings["not_a_case_title"], str(exc))
+            return
+
+        # Most tutorials ship 0.orig and no 0, so this is the common path rather
+        # than a corner: without it the solver fails on a case that is perfectly
+        # good (351 of the v2512 tutorials are like this).
+        restored = self._cases.restore_initial_conditions(case)
+
+        try:
+            plan = build_plan(case)
+        except ValueError as exc:
+            self._report(self._strings["cannot_plan_title"], str(exc))
+            return
+
         self.set_active_case(case.name)
-        self.show_view("cases")
+        if self._session is not None:
+            self._run.set_context(self._session, case.path, plan)
+            self.show_view("run")
+        else:
+            # A case can be opened without a runtime; it just cannot be run. Said
+            # plainly rather than by leaving the Run button mysteriously dead.
+            self._report(self._strings["no_runtime_title"], self._strings["no_runtime_body"])
+            self.show_view("setup")
+
+        if restored:
+            log_event(_log, Event.CASE_WRITE, case=str(path), action="restore_initial")
 
     # -- for tests ---------------------------------------------------------
 
@@ -215,3 +327,17 @@ class Shell(QMainWindow):
 
     def view(self, key: str) -> QWidget:
         return self._views[key]
+
+    @property
+    def run_view(self) -> RunView:
+        return self._run
+
+    def closeEvent(self, event) -> None:
+        """Reap a running solver before the window goes away (FR-S10, NFR-R6).
+
+        Force-quitting must leave no ``simpleFoam`` or ``mpirun`` behind. Doing
+        this in ``closeEvent`` rather than at interpreter exit means the process
+        group is signalled while Qt is still alive to wait for it.
+        """
+        self._run.shutdown()
+        super().closeEvent(event)

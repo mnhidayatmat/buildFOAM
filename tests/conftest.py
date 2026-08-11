@@ -72,6 +72,12 @@ QT_AVAILABLE = _qt_is_usable()
 
 #: Test modules that need a working Qt. Named by the thing they test, so the
 #: reason a module is here is visible from its name.
-_UI_TEST_MODULES = ("test_app.py", "test_probe.py", "test_shell.py", "test_theme.py")
+_UI_TEST_MODULES = (
+    "test_app.py",
+    "test_probe.py",
+    "test_run_view.py",
+    "test_shell.py",
+    "test_theme.py",
+)
 
 collect_ignore = [] if QT_AVAILABLE else list(_UI_TEST_MODULES)
