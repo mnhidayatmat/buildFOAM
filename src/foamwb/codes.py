@@ -123,6 +123,54 @@ class ErrorCode:
         "E-C07", "Case authored for an unsupported release", "cases/version-mismatch"
     )
 
+    GEOMETRY_UNREADABLE = _c(
+        "E-C09", "Geometry file could not be read", "cases/geometry-unreadable"
+    )
+    """The file exists but is not a surface: empty, truncated mid-facet, or not
+    geometry at all. Caught on import rather than left for ``snappyHexMesh``,
+    which reports the same file minutes later as a meshing failure."""
+
+    GEOMETRY_UNSUPPORTED = _c(
+        "E-C10", "Geometry format not supported", "cases/geometry-unsupported"
+    )
+    """A native CAD document — ``.sldprt``, ``.catpart`` — that no available
+    reader opens. Distinct from E-C11: no converter would help, so the remedy is
+    to export an exchange format from the CAD package."""
+
+    CAD_CONVERTER_MISSING = _c(
+        "E-C11", "No CAD converter is installed", "cases/cad-converter-missing"
+    )
+    """STEP or IGES, on a machine with no geometry kernel. The file is fine and
+    the format is supported; what is missing is the tool, so the remedy is to
+    install one or to export STL instead."""
+
+    NEW_CASE_EXISTS = _c("E-C13", "A case is already there", "cases/new-case-exists")
+    """Creating into an occupied directory would destroy it, and there is no
+    undo. Refused rather than merged."""
+
+    NEW_CASE_NAME_INVALID = _c(
+        "E-C14", "That name cannot be used as a folder", "cases/new-case-name"
+    )
+
+    NEW_CASE_NOT_WRITABLE = _c(
+        "E-C15", "The case could not be written there", "cases/new-case-not-writable"
+    )
+
+    NO_GEOMETRY_TO_MESH = _c(
+        "E-C16", "There is no geometry to mesh around", "cases/no-geometry-to-mesh"
+    )
+
+    MESH_DICT_EXISTS = _c(
+        "E-C17", "The meshing dictionaries are already there", "cases/mesh-dict-exists"
+    )
+    """A case that arrived with its own tuned ``snappyHexMeshDict`` must not lose
+    it to a button labelled *Generate*. Overwriting is offered, never assumed."""
+
+    CAD_CONVERSION_FAILED = _c("E-C12", "CAD conversion failed", "cases/cad-conversion-failed")
+    """The converter ran and did not produce a usable surface. Carries the
+    tool's own output, because the cause is in the model — an unhealed solid, a
+    tolerance the kernel could not satisfy — and only that text names it."""
+
     # -- Run (S) -----------------------------------------------------------
     MESH_FAILED = _c("E-S01", "Mesh generation failed", "running/mesh-failed")
     CHECKMESH_ERRORS = _c("E-S02", "checkMesh reports errors", "running/checkmesh-errors")

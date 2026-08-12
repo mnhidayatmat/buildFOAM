@@ -26,6 +26,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QTreeWidget,
@@ -74,10 +75,23 @@ class WorkflowNav(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
+        header = QWidget()
+        header_row = QHBoxLayout(header)
+        header_row.setContentsMargins(10, 6, 10, 6)
+        header_row.setSpacing(8)
+
         heading = QLabel(labels["workflow"])
         heading.setProperty("role", "panelTitle")
-        heading.setContentsMargins(10, 6, 10, 6)
-        outer.addWidget(heading)
+        header_row.addWidget(heading)
+        header_row.addStretch(1)
+
+        # "2 of 4 done" beside the title. The panel could previously answer "what
+        # next?" but not "how far along am I?", and a procedure that will not say
+        # how long it is asks for more faith than a first-time user has.
+        self._progress = QLabel()
+        self._progress.setProperty("role", "muted")
+        header_row.addWidget(self._progress)
+        outer.addWidget(header)
 
         self._tree = QTreeWidget()
         self._tree.setHeaderHidden(True)
@@ -143,6 +157,13 @@ class WorkflowNav(QWidget):
         for step in STEPS:
             self._render(step, self._items[step.id])
 
+        done, total = self._model.progress
+        self._progress.setText(
+            self._labels["workflow_progress_none"]
+            if self._model.case is None
+            else self._labels["workflow_progress"].format(done, total)
+        )
+
         following = self._model.next_step
         self._next.setText(
             self._labels["next_step"].format(self._labels[f"step.{following.id}"])
@@ -156,11 +177,17 @@ class WorkflowNav(QWidget):
         label = self._labels[f"step.{step.id}"]
 
         if step.is_group:
-            # Headers carry no state glyph: a group is not a thing you do, and
-            # giving it one invites the user to click it and be told nothing.
+            # Headers carry no marker, and are set in bold against the muted
+            # colour. That difference is what tells a header from a step at a
+            # glance — the previous version distinguished them only by the
+            # presence of a four-pixel glyph, which is not a difference anyone
+            # reads.
             item.setText(0, label)
+            font = item.font(0)
+            font.setBold(True)
+            item.setFont(0, font)
         else:
-            item.setText(0, self._labels["step_row"].format(STATE_GLYPHS[state], label))
+            item.setText(0, self._row_text(step, state, label))
 
         # Never `setDisabled`. Qt refuses to make a disabled item current, so a
         # blocked row could not be focused — and its explanation, which is the
@@ -188,6 +215,44 @@ class WorkflowNav(QWidget):
             self._labels["step_accessible"].format(label, self._labels[f"state.{state.value}"]),
         )
 
+    def _marker(self, step: Step, state: StepState) -> str:
+        """The mark at the head of a row.
+
+        A required step shows its **number** in the procedure, or a tick once the
+        evidence says it is done. That single choice does three jobs the old
+        four-glyph vocabulary could not: it states the order, it distinguishes
+        the four steps that must happen from the seventeen that need not, and it
+        makes completion legible without a legend.
+
+        Optional steps keep a state glyph, because they have no position to show.
+        """
+        if (number := self._model.number_of(step)) is not None:
+            # The number stays when the step is done. Replacing it with a bare
+            # tick loses the sequence exactly where the user most wants it — a
+            # column reading "✓ ✓ 3 ✓" says nothing about what order those were
+            # in, or which one the 3 follows.
+            if state is StepState.DONE:
+                return self._labels["step_done_number"].format(number)
+            return str(number)
+        return STATE_GLYPHS[state]
+
+    def _row_text(self, step: Step, state: StepState, label: str) -> str:
+        """A step row: marker, label, and the state in words where it is unclear.
+
+        Only ``blocked`` and ``locked`` get the trailing word. ``available`` is
+        the ordinary case and saying so on every row would be noise; ``done``
+        already shows a tick. The two that remain are exactly the two a user
+        cannot otherwise account for — "why can I not click this?" — and putting
+        the answer on the row rather than in a tooltip is what stops the panel
+        needing to be learned (NFR-A2: never appearance alone).
+        """
+        marker = self._marker(step, state)
+        if state in {StepState.BLOCKED, StepState.LOCKED}:
+            return self._labels["step_row_state"].format(
+                marker, label, self._labels[f"state.{state.value}"]
+            )
+        return self._labels["step_row"].format(marker, label)
+
     def _explain(self, step: Step, state: StepState) -> str:
         """Why a row is in the state it is in. Shown rather than left to guess."""
         if state is StepState.LOCKED:
@@ -203,7 +268,13 @@ class WorkflowNav(QWidget):
     def _on_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
         step_id = item.data(0, _STEP_ROLE)
         step = next((s for s in STEPS if s.id == step_id), None)
-        if step is None or step.is_group:
+        if step is None:
+            return
+        if step.is_group:
+            # Collapse or expand, rather than nothing at all. A header that
+            # swallows a click reads as broken, and folding a group the user is
+            # done with is the cheapest way to shorten a twenty-row list.
+            item.setExpanded(not item.isExpanded())
             return
         if self._model.state_of(step) in {StepState.BLOCKED, StepState.LOCKED}:
             return
@@ -267,6 +338,10 @@ class WorkflowNav(QWidget):
         if step is None or step.is_group:
             return False
         return self._model.state_of(step) not in {StepState.BLOCKED, StepState.LOCKED}
+
+    @property
+    def progress_text(self) -> str:
+        return self._progress.text()
 
     @property
     def next_text(self) -> str:

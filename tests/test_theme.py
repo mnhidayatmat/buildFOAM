@@ -196,6 +196,7 @@ _NEEDS_NO_RULE = {
     "QApplication",
     "QDialog",
     "QFileDialog",
+    "QInputDialog",
     "QFrame",
     "QGridLayout",
     "QHBoxLayout",

@@ -81,6 +81,20 @@ def shell_strings() -> dict[str, str]:
             "A case can be opened, but running one needs a working OpenFOAM. Setup will install it."
         ),
         "run_state_running": _("running"),
+        # Creating a case (FR-C1)
+        "new_case_where": _("Choose where to create the case"),
+        "new_case_name_title": _("New case"),
+        "new_case_name_prompt": _("Name for the new case folder:"),
+        "new_case_default": _("case"),
+        "new_case_failed_title": _("The case could not be created"),
+        "new_case_failed": _("{0}  ({1})"),
+        # Revealing the case folder
+        "no_case_open_title": _("No case is open"),
+        "no_case_open_body": _("Open or create a case first, and this will show you its folder."),
+        "reveal_failed_title": _("The folder could not be opened"),
+        "reveal_failed_body": _(
+            "The case is at {0}, but this computer's file manager could not be started."
+        ),
         # Compositions, kept translatable so their parts can be reordered.
         "nav_item": _("{0}  {1}"),
         "nav_tooltip": _("{0}  ({1})"),
@@ -206,6 +220,63 @@ def preprocessor_strings() -> dict[str, str]:
         **log_pane_strings(),
         "stop_now": _("Stop Now"),
         "case_files": _("Case files"),
+        # Geometry (FR-P3)
+        "geometry_tab": _("Geometry"),
+        "geometry_heading": _("Surfaces"),
+        "geometry_intro": _(
+            "Surfaces in constant/triSurface, which snappyHexMesh meshes around. "
+            "STL and OBJ are used directly; STEP and IGES are converted on import."
+        ),
+        "geometry_import": _("Import Geometry…"),
+        "geometry_none": _("No geometry imported yet."),
+        "geometry_filter": _(
+            "Geometry (*.stl *.obj *.step *.stp *.iges *.igs *.brep);;All files (*)"
+        ),
+        "geometry_choose": _("Choose a geometry file"),
+        # Two entries rather than one, because a surface can legitimately hold a
+        # single triangle and "1 triangles" is the kind of slip that makes an
+        # application look unfinished. Two catalogue keys keep the choice in the
+        # widget where the count is known, and keep both forms translatable.
+        "geometry_summary": _("{0} — {1} triangles"),
+        "geometry_summary_one": _("{0} — 1 triangle"),
+        "geometry_unreadable_row": _("{0} — could not be read"),
+        "geometry_bounds": _("Size {0} x {1} x {2}"),
+        "geometry_regions": _("Regions: {0}"),
+        "geometry_imported": _("Imported {0}."),
+        "geometry_converting": _("Converting {0}. This can take a few minutes."),
+        "geometry_failed": _("{0}  ({1})"),
+        "geometry_binary": _("binary"),
+        "geometry_ascii": _("text"),
+        "geometry_converter": _("CAD converter: {0}"),
+        "geometry_converter_none": _(
+            "No CAD converter found, so STEP and IGES cannot be converted. "
+            "Install Gmsh, or export STL from your CAD package."
+        ),
+        "geometry_remove": _("Remove"),
+        "geometry_removed": _("Removed {0}."),
+        # Building a mesh around the imported geometry (FR-P3)
+        "mesh_from_geometry": _("Mesh around this geometry"),
+        "flow_region": _("Flow is"),
+        "flow_external": _("Around the body (external)"),
+        "flow_internal": _("Through the body (internal)"),
+        "flow_region_help": _(
+            "This decides which side of the surface the fluid is on. Getting it "
+            "wrong is the usual reason a mesh comes out empty or inside out."
+        ),
+        "refinement_levels": _("Surface refinement"),
+        "refinement_range": _("{0} to {1}"),
+        "background_cells": _("Background cells (longest axis)"),
+        "domain_summary": _("Domain {0} x {1} x {2}, {3} background cells before refinement."),
+        "generate_mesh_dicts": _("Generate Mesh Settings"),
+        "replace_mesh_dicts": _("Replace Mesh Settings"),
+        "mesh_dicts_written": _("Wrote blockMeshDict and snappyHexMeshDict. Mesh tab is next."),
+        "mesh_dicts_exist": _("This case already has {0}. Generating would replace it."),
+        "mesh_dicts_failed": _("{0}  ({1})"),
+        "confirm_replace_title": _("Replace the meshing dictionaries?"),
+        "confirm_replace_body": _(
+            "{0} will be overwritten. If you tuned it by hand, copy it somewhere "
+            "else first — this cannot be undone."
+        ),
         "form_tab": _("Form"),
         "form_tab_unavailable": _("Form (not available)"),
         "text_tab": _("Text"),
@@ -409,8 +480,8 @@ def workflow_strings() -> dict[str, str]:
         "messages": _("Messages"),
         # The steps, in order.
         "step.case": _("Case"),
-        "step.case.open": _("Open or create"),
-        "step.case.files": _("Case files"),
+        "step.case.open": _("Open a case"),
+        "step.case.files": _("All case files"),
         "step.mesh": _("Mesh"),
         "step.mesh.settings": _("Mesh settings"),
         "step.mesh.regions": _("Regions and patches"),
@@ -423,10 +494,12 @@ def workflow_strings() -> dict[str, str]:
         "step.conditions.boundary": _("Boundary conditions"),
         "step.conditions.control": _("Solution control"),
         "step.conditions.output": _("Output"),
+        "step.solution": _("Solution"),
         "step.verify": _("Check setup"),
-        "step.execute": _("Execute"),
+        "step.execute": _("Run"),
         "step.results": _("Results"),
-        "step.vandv": _("Verification"),
+        "step.vandv": _("Turbulence and y+"),
+        "step.reference": _("Reference"),
         "step.library": _("Library"),
         "step.guide": _("Guide"),
         # What each step is for, shown when it is selected. One sentence.
@@ -452,6 +525,12 @@ def workflow_strings() -> dict[str, str]:
         "state.blocked": _("not yet"),
         "state.locked": _("locked"),
         "next_step": _("Next: {0}"),
+        # Marker, then label. A required step's marker is its number in the
+        # spine, or a tick once done; an optional step keeps a state glyph.
+        "step_row_state": _("{0}  {1} — {2}"),
+        "step_done_number": _("\u2713 {0}"),
+        "workflow_progress": _("{0} of {1} done"),
+        "workflow_progress_none": _("Open a case to begin."),
         "nothing_outstanding": _("Every required step is done."),
         "return_to_mesh": _("Return to mesh"),
         "locked_explains": _("The mesh is built. Return to mesh to change it."),

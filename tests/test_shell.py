@@ -23,7 +23,7 @@ from foamwb.codes import ErrorCode
 from foamwb.services.recents import RecentCase
 from foamwb.services.runtime import RuntimeKind, RuntimeState, RuntimeStatus
 from foamwb.services.settings import SettingsService, ThemeChoice
-from foamwb.services.workflow import STEPS
+from foamwb.services.workflow import STEPS, step_by_id
 from foamwb.ui.navrail import NAV_ITEMS
 from foamwb.ui.shell import Shell
 from foamwb.ui.theme import DARK, LIGHT
@@ -124,7 +124,7 @@ class TestWorkflowNavigation:
         assert len(set(STATE_GLYPHS.values())) == len(STATE_GLYPHS)
 
     def test_the_panel_says_what_to_do_next(self, shell: Shell) -> None:
-        assert "Open or create" in shell.workflow.next_text
+        assert "Open a case" in shell.workflow.next_text
 
     def test_the_panel_can_be_collapsed_from_the_keyboard(self, shell: Shell) -> None:
         """NFR-A1 — a splitter that needs dragging is not keyboard-operable."""
@@ -300,16 +300,28 @@ class TestHub:
     def test_no_action_button_is_inert(self, shell: Shell, qtbot) -> None:
         # FR-A1: every target reachable in one click. A button wired to nothing
         # would pass a smoke test while being useless.
+        #
+        # "Did something" means one of two observable things, because the actions
+        # are not all navigation: a button either changes the view, or it asks the
+        # user a question. Cancelling that question deliberately leaves the view
+        # alone, so the *asking* is what has to be asserted — this is the check
+        # that caught New Case and Case Folder falling through to an empty Cases
+        # view, which looked to the user like nothing happening at all.
         asked: list[str] = []
-        shell.set_dialogs(choose_directory=lambda title: asked.append(title))
+        reported: list[str] = []
+        shell.set_dialogs(
+            choose_directory=lambda title: asked.append(title),
+            ask_text=lambda title, _prompt, _default: asked.append(title),
+            report=lambda title, _body: reported.append(title),
+        )
+        interactive = {"open_case", "new_case", "case_folder"}
 
         for key, _primary in shell.hub.ACTIONS:
             shell.show_view("hub")
+            before = len(asked) + len(reported)
             qtbot.mouseClick(shell.hub.action_button(key), Qt.MouseButton.LeftButton)
-            if key == "open_case":
-                # Cancelling deliberately leaves the view alone; what matters is
-                # that the button asked.
-                assert asked, "Open Case did not ask for a folder"
+            if key in interactive:
+                assert len(asked) + len(reported) > before, f"{key} did nothing"
             else:
                 assert shell.current_view != "hub", f"{key} did nothing"
 
@@ -570,3 +582,205 @@ class TestFollowingTheDesktop:
         desktop(Qt.ColorScheme.Dark)
         window.set_theme(ThemeChoice.SYSTEM)
         assert SettingsService(service.path).load().theme is ThemeChoice.SYSTEM
+
+
+class TestNewCase:
+    """FR-C1 — *New Case* creates a case rather than showing an empty panel.
+
+    The behaviour these replace was the one a user reported: the button routed to
+    the Cases view, which with nothing open is blank, so pressing it looked
+    exactly like pressing a button that was not connected.
+    """
+
+    def _wire(self, shell: Shell, tmp_path: Path, name: str = "wing"):
+        reported: list[tuple[str, str]] = []
+        shell.set_dialogs(
+            choose_directory=lambda _title: tmp_path,
+            ask_text=lambda _title, _prompt, _default: name,
+            report=lambda title, body: reported.append((title, body)),
+        )
+        return reported
+
+    def test_creates_and_opens_the_case(self, shell: Shell, tmp_path: Path) -> None:
+        self._wire(shell, tmp_path)
+        shell.new_case_dialog()
+
+        created = tmp_path / "wing"
+        assert (created / "system" / "controlDict").is_file()
+        assert shell.footer.case_text == "wing"
+
+    def test_lands_on_the_view_that_takes_geometry(self, shell: Shell, tmp_path: Path) -> None:
+        # A new case has no mesh and no fields; the next thing to do with it is
+        # import a model, so it must not open on a page that hides that.
+        self._wire(shell, tmp_path)
+        shell.new_case_dialog()
+        assert shell.current_view == "cases"
+
+    def test_cancelling_the_folder_creates_nothing(self, shell: Shell, tmp_path: Path) -> None:
+        shell.set_dialogs(choose_directory=lambda _title: None)
+        shell.new_case_dialog()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_cancelling_the_name_creates_nothing(self, shell: Shell, tmp_path: Path) -> None:
+        shell.set_dialogs(
+            choose_directory=lambda _title: tmp_path,
+            ask_text=lambda _t, _p, _d: None,
+        )
+        shell.new_case_dialog()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_an_empty_name_creates_nothing(self, shell: Shell, tmp_path: Path) -> None:
+        shell.set_dialogs(
+            choose_directory=lambda _title: tmp_path,
+            ask_text=lambda _t, _p, _d: "",
+        )
+        shell.new_case_dialog()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_refusal_is_reported_with_its_code(self, shell: Shell, tmp_path: Path) -> None:
+        (tmp_path / "wing").mkdir()
+        (tmp_path / "wing" / "keep.txt").write_text("mine")
+        reported = self._wire(shell, tmp_path)
+
+        shell.new_case_dialog()
+
+        assert reported, "an occupied destination was not reported"
+        # §9 code in the message, so support starts from a code (E-C13).
+        assert "E-C" in reported[0][1]
+        assert (tmp_path / "wing" / "keep.txt").read_text() == "mine"
+
+    def test_an_invalid_name_is_reported_rather_than_silently_ignored(
+        self, shell: Shell, tmp_path: Path
+    ) -> None:
+        reported = self._wire(shell, tmp_path, name="a/b")
+        shell.new_case_dialog()
+        assert reported
+
+
+class TestCaseFolder:
+    """The Hub's *Case Folder* action."""
+
+    def test_reveals_the_open_case(self, shell: Shell, tmp_path: Path) -> None:
+        revealed: list[Path] = []
+        shell.set_dialogs(
+            choose_directory=lambda _title: tmp_path,
+            ask_text=lambda _t, _p, _d: "wing",
+            reveal=lambda path: revealed.append(path) or True,
+        )
+        shell.new_case_dialog()
+        shell.reveal_case_folder()
+
+        assert revealed == [tmp_path / "wing"]
+
+    def test_says_so_when_no_case_is_open(self, shell: Shell) -> None:
+        reported: list[tuple[str, str]] = []
+        shell.set_dialogs(report=lambda title, body: reported.append((title, body)))
+        shell.reveal_case_folder()
+        assert reported, "an inert button is what this action used to be"
+
+    def test_a_file_manager_that_refuses_is_reported(self, shell: Shell, tmp_path: Path) -> None:
+        reported: list[tuple[str, str]] = []
+        shell.set_dialogs(
+            choose_directory=lambda _title: tmp_path,
+            ask_text=lambda _t, _p, _d: "wing",
+            report=lambda title, body: reported.append((title, body)),
+            reveal=lambda _path: False,
+        )
+        shell.new_case_dialog()
+        shell.reveal_case_folder()
+        # The path is named, so the user can still get there by hand.
+        assert reported and "wing" in reported[-1][1]
+
+
+class TestTheProcedureReadsAsOne:
+    """§7.2 — the panel has to be legible as an ordered procedure.
+
+    Users reported the list as hard to understand, and the audit found why: group
+    headers and steps shared an indent level, four near-identical glyphs carried
+    every state with no legend, nothing was numbered, and two reference pages sat
+    in the list as though they were steps. These assert the fixes, because each
+    one is the kind of thing that quietly regresses when a step is added.
+    """
+
+    def test_every_step_lives_inside_a_group(self) -> None:
+        # Headers and steps shared indentation before, so structure and content
+        # were told apart only by the presence of a glyph.
+        for step in STEPS:
+            if not step.is_group:
+                assert step.parent, f"{step.id} is a step with no group"
+
+    def test_only_the_required_steps_are_numbered(self, shell: Shell, tmp_path) -> None:
+        shell.open_case(_cavity(tmp_path))
+        model = shell.workflow.model
+        for step in STEPS:
+            number = model.number_of(step)
+            if step.required:
+                assert number is not None, f"{step.id} is required but unnumbered"
+            else:
+                assert number is None, f"{step.id} is optional but numbered"
+
+    def test_the_numbers_run_from_one_without_gaps(self, shell: Shell) -> None:
+        model = shell.workflow.model
+        numbers = [model.number_of(s) for s in STEPS if s.required]
+        assert numbers == list(range(1, len(numbers) + 1))
+
+    def test_a_done_step_shows_a_tick_rather_than_its_number(self, shell: Shell, tmp_path) -> None:
+        shell.open_case(_cavity(tmp_path))
+        # case.open is done the moment a case is open.
+        assert "✓" in shell.workflow.text_of("case.open")
+
+    def test_an_outstanding_step_shows_its_position(self, shell: Shell, tmp_path) -> None:
+        shell.open_case(_cavity(tmp_path))
+        assert "2" in shell.workflow.text_of("mesh.generate")
+
+    def test_a_blocked_row_says_so_in_words_on_the_row(self, shell: Shell) -> None:
+        """Not only in a tooltip.
+
+        "Why can I not click this?" is the question the panel most needed to
+        answer, and a tooltip answers it only for someone using a mouse who
+        already suspected there was something to hover over.
+        """
+        assert "not yet" in shell.workflow.text_of("execute")
+
+    def test_an_available_row_is_not_cluttered_with_its_state(self, shell: Shell, tmp_path) -> None:
+        # Saying "ready" on every ordinary row is noise, not information.
+        shell.open_case(_cavity(tmp_path))
+        assert "ready" not in shell.workflow.text_of("conditions.basic")
+
+    def test_progress_is_reported(self, shell: Shell, tmp_path) -> None:
+        shell.open_case(_cavity(tmp_path))
+        done, total = shell.workflow.model.progress
+        assert total == len([s for s in STEPS if s.required])
+        assert f"{done} of {total}" in shell.workflow.progress_text
+
+    def test_progress_moves_when_a_step_completes(self, shell: Shell, tmp_path) -> None:
+        case = _cavity(tmp_path)
+        shell.open_case(case)
+        before, _ = shell.workflow.model.progress
+
+        (case / "constant" / "polyMesh").mkdir(parents=True)
+        shell.open_case(case)
+        after, _ = shell.workflow.model.progress
+        assert after > before
+
+    def test_reference_pages_are_not_part_of_the_procedure(self) -> None:
+        # They used to sit beside Execute and Results, reading as steps 12 and 13.
+        for step_id in ("library", "guide"):
+            step = step_by_id(step_id)
+            assert step.reference
+            assert not step.required
+
+    def test_a_reference_page_never_becomes_the_next_step(self, shell: Shell) -> None:
+        model = shell.workflow.model
+        following = model.next_step
+        assert following is None or not following.reference
+
+    def test_clicking_a_group_folds_it_rather_than_doing_nothing(self, shell: Shell) -> None:
+        """A header that swallows a click reads as broken."""
+        nav = shell.workflow
+        item = nav._items["conditions"]
+        assert item.isExpanded()
+        nav._on_clicked(item, 0)
+        assert not item.isExpanded()
+        nav._on_clicked(item, 0)
+        assert item.isExpanded()
