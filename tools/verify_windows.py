@@ -56,16 +56,16 @@ class Report:
 
 def _run(argv: list[str], timeout: int = 60) -> tuple[int, str]:
     try:
-        done = subprocess.run(
-            argv, capture_output=True, timeout=timeout, check=False
-        )
+        done = subprocess.run(argv, capture_output=True, timeout=timeout, check=False)
     except (OSError, subprocess.SubprocessError) as exc:
         return 1, str(exc)
     # wsl.exe writes UTF-16 on some builds. Decoding leniently and stripping
     # nulls is what makes its output comparable at all.
     raw = done.stdout or done.stderr
-    text = raw.decode("utf-16-le", errors="replace") if b"\x00" in raw[:8] else raw.decode(
-        "utf-8", errors="replace"
+    text = (
+        raw.decode("utf-16-le", errors="replace")
+        if b"\x00" in raw[:8]
+        else raw.decode("utf-8", errors="replace")
     )
     return done.returncode, text.replace("\x00", "").strip()
 
