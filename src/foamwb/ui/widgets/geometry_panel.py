@@ -30,11 +30,14 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -47,6 +50,14 @@ from foamwb.services.geometry import (
     existing_surfaces,
     import_geometry,
 )
+from foamwb.services.snappy import (
+    FlowRegion,
+    MeshPlan,
+    MeshSettings,
+    SnappyError,
+    plan_mesh,
+    write_dictionaries,
+)
 from foamwb.ui.theme import Palette
 
 __all__ = ["GeometryPanel"]
@@ -58,6 +69,10 @@ _log = get_logger("ui.geometry")
 #: Three, because the question the number answers is "are these millimetres or
 #: metres?", and that is visible in the magnitude rather than the precision.
 _PLACES = 3
+
+#: How wide a value control in the mesh section may get, in pixels. Matches the
+#: form editor, so the two read as the same application.
+_CONTROL_WIDTH = 260
 
 
 class GeometryPanel(QWidget):
@@ -85,6 +100,8 @@ class GeometryPanel(QWidget):
         # dialog blocks its thread until a human answers, so a test that reached
         # one would hang rather than fail.
         self._choose_file = self._ask_for_file
+        self._confirm = self._ask_to_confirm
+        self._plan: MeshPlan | None = None
 
         column = QVBoxLayout(self)
         column.setContentsMargins(0, 0, 0, 0)
@@ -128,8 +145,74 @@ class GeometryPanel(QWidget):
         self._converter_note.setWordWrap(True)
         column.addWidget(self._converter_note)
 
+        column.addWidget(self._build_mesh_section(labels))
+
         self._describe_converter()
         self.set_case(None)
+
+    def _build_mesh_section(self, labels: dict[str, str]) -> QWidget:
+        """The mesh built *from* the geometry, beside the geometry itself.
+
+        Here rather than in the Mesh tab because that tab runs utilities, and
+        until these dictionaries exist it has none to offer — which is the dead
+        end this closes. The decisions are also all about the surface just
+        imported, so they belong next to it.
+        """
+        section = QWidget()
+        column = QVBoxLayout(section)
+        column.setContentsMargins(0, 8, 0, 0)
+        column.setSpacing(6)
+
+        heading = QLabel(labels["mesh_from_geometry"])
+        heading.setProperty("role", "subheading")
+        column.addWidget(heading)
+
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+
+        self._region = QComboBox()
+        # The value carried, not the label, so the answer survives translation.
+        self._region.addItem(labels["flow_external"], FlowRegion.EXTERNAL)
+        self._region.addItem(labels["flow_internal"], FlowRegion.INTERNAL)
+        self._region.setAccessibleName(labels["flow_region"])
+        self._region.currentIndexChanged.connect(self._replan)
+        self._region.setMaximumWidth(_CONTROL_WIDTH)
+        form.addRow(labels["flow_region"], self._region)
+
+        region_help = QLabel(labels["flow_region_help"])
+        region_help.setProperty("role", "muted")
+        region_help.setWordWrap(True)
+        column.addLayout(form)
+        column.addWidget(region_help)
+
+        levels = QFormLayout()
+        levels.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        levels.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+
+        refinement = QHBoxLayout()
+        self._refine_min = _spin(0, 6, 2, labels["refinement_levels"])
+        self._refine_max = _spin(0, 8, 3, labels["refinement_levels"])
+        for box in (self._refine_min, self._refine_max):
+            box.valueChanged.connect(self._replan)
+            refinement.addWidget(box)
+        refinement.addStretch(1)
+        levels.addRow(labels["refinement_levels"], refinement)
+
+        self._cells = _spin(4, 400, 40, labels["background_cells"])
+        self._cells.valueChanged.connect(self._replan)
+        levels.addRow(labels["background_cells"], self._cells)
+        column.addLayout(levels)
+
+        self._domain = QLabel()
+        self._domain.setProperty("role", "muted")
+        self._domain.setWordWrap(True)
+        column.addWidget(self._domain)
+
+        self._generate_button = QPushButton(labels["generate_mesh_dicts"])
+        self._generate_button.clicked.connect(self.generate_dictionaries)
+        column.addWidget(self._generate_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        return section
 
     # -- content -----------------------------------------------------------
 
@@ -157,6 +240,9 @@ class GeometryPanel(QWidget):
             self._status.setText(self._labels["geometry_none"])
         self._import_button.setEnabled(self._case is not None)
         self._update_buttons()
+        # The domain follows the geometry, so it is re-derived whenever the
+        # surfaces change rather than only when a control is touched.
+        self._replan()
 
     def _describe(self, surface: Surface) -> str:
         """One surface, as the facts that decide whether it will mesh."""
@@ -187,12 +273,104 @@ class GeometryPanel(QWidget):
     def _update_buttons(self, *_args) -> None:
         self._remove_button.setEnabled(self._list.currentItem() is not None)
 
+    # -- meshing -----------------------------------------------------------
+
+    def settings(self) -> MeshSettings:
+        """What the controls currently say."""
+        return MeshSettings(
+            region=self._region.currentData(),
+            refinement_min=self._refine_min.value(),
+            refinement_max=self._refine_max.value(),
+            background_cells=self._cells.value(),
+        )
+
+    def _replan(self, *_args) -> None:
+        """Re-derive the domain and say what it would cost.
+
+        Run on every change rather than only when Generate is pressed, so the
+        cell count — the number that decides whether meshing takes a minute or an
+        hour — moves while the user is choosing, not after.
+        """
+        self._plan = None
+        if self._case is None:
+            self._domain.clear()
+            self._generate_button.setEnabled(False)
+            return
+
+        try:
+            self._plan = plan_mesh(self._case, self.settings())
+        except SnappyError:
+            # No geometry yet is the ordinary state of a new case, and the
+            # surfaces list above already says so.
+            self._domain.clear()
+            self._generate_button.setEnabled(False)
+            return
+
+        size = (self._plan.high[axis] - self._plan.low[axis] for axis in range(3))
+        self._domain.setText(
+            self._labels["domain_summary"].format(
+                *(_number(value) for value in size),
+                self._plan.background_cell_count,
+            )
+        )
+        self._generate_button.setEnabled(True)
+        # The button states the consequence: replacing is not the same act as
+        # generating, and the label is where that difference is visible.
+        replacing = bool(self._plan.existing)
+        self._generate_button.setText(
+            self._labels["replace_mesh_dicts"] if replacing else self._labels["generate_mesh_dicts"]
+        )
+
+    def generate_dictionaries(self) -> bool:
+        """Write the background mesh and meshing dictionary (FR-P3)."""
+        if self._case is None or self._plan is None:
+            return False
+
+        if self._plan.existing:
+            names = ", ".join(path.name for path in self._plan.existing)
+            if not self._confirm(
+                self._labels["confirm_replace_title"],
+                self._labels["confirm_replace_body"].format(names),
+            ):
+                return False
+
+        try:
+            write_dictionaries(self._case, self._plan, replace_existing=True)
+        except SnappyError as exc:
+            self._status.setStyleSheet(f"color: {self._palette.broken};")
+            self._status.setText(self._labels["mesh_dicts_failed"].format(exc.message, exc.code.id))
+            log_event(_log, Event.ERROR_RAISED, where="geometry.generate", error=exc.code.id)
+            return False
+
+        self._status.setStyleSheet(f"color: {self._palette.ready};")
+        self._status.setText(self._labels["mesh_dicts_written"])
+        self._replan()
+        # The Mesh tab has utilities to offer now, where a moment ago it had none.
+        self.geometry_changed.emit()
+        return True
+
     # -- importing ---------------------------------------------------------
 
-    def set_dialogs(self, *, choose_file=None) -> None:
-        """Replace the file dialog, for tests and scripted runs."""
+    def set_dialogs(self, *, choose_file=None, confirm=None) -> None:
+        """Replace the modal dialogs, for tests and scripted runs."""
         if choose_file is not None:
             self._choose_file = choose_file
+        if confirm is not None:
+            self._confirm = confirm
+
+    def _ask_to_confirm(self, title: str, body: str) -> bool:
+        from PySide6.QtWidgets import QMessageBox
+
+        answer = QMessageBox.question(
+            self,
+            title,
+            body,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            # Cancel is the default, because the destructive answer should not be
+            # the one a return key reaches first.
+            QMessageBox.StandardButton.Cancel,
+        )
+        return answer == QMessageBox.StandardButton.Yes
 
     def _ask_for_file(self, title: str, filters: str) -> Path | None:
         from PySide6.QtWidgets import QFileDialog
@@ -285,6 +463,22 @@ class GeometryPanel(QWidget):
     def can_import(self) -> bool:
         return self._import_button.isEnabled()
 
+    @property
+    def can_generate(self) -> bool:
+        return self._generate_button.isEnabled()
+
+    @property
+    def generate_text(self) -> str:
+        return self._generate_button.text()
+
+    @property
+    def domain_text(self) -> str:
+        return self._domain.text()
+
+    @property
+    def plan(self):
+        return self._plan
+
     def select(self, index: int) -> None:
         self._list.setCurrentRow(index)
 
@@ -292,3 +486,12 @@ class GeometryPanel(QWidget):
 def _number(value: float) -> str:
     """A dimension, without trailing zeros that suggest false precision."""
     return f"{value:.{_PLACES}f}".rstrip("0").rstrip(".") or "0"
+
+
+def _spin(low: int, high: int, value: int, name: str) -> QSpinBox:
+    box = QSpinBox()
+    box.setRange(low, high)
+    box.setValue(value)
+    box.setAccessibleName(name)
+    box.setMaximumWidth(_CONTROL_WIDTH)
+    return box

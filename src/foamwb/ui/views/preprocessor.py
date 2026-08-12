@@ -127,7 +127,7 @@ class PreprocessorView(QWidget):
         # New geometry does not change the mesh, but it does change what the next
         # mesh will be built from — so the utilities are re-offered rather than
         # left describing the case as it was.
-        self._geometry.geometry_changed.connect(self._refresh_mesh_context)
+        self._geometry.geometry_changed.connect(self._on_geometry_changed)
         self._tabs.addTab(self._geometry, labels["geometry_tab"])
 
         self._mesh = MeshPanel(self._palette, labels)
@@ -171,11 +171,9 @@ class PreprocessorView(QWidget):
         if self._case is not None:
             self._refresh_mesh_context()
 
-    def set_case(self, case: Case) -> None:
-        """Load a case: populate the tree, select something, validate."""
-        self._case = case
+    def _populate_tree(self, case: Case) -> None:
+        """Fill the file tree from what is on disk right now."""
         self._tree.clear()
-
         groups: dict[str, QTreeWidgetItem] = {}
         for path in self._cases.dictionary_files(case):
             relative = path.relative_to(case.path)
@@ -189,6 +187,10 @@ class PreprocessorView(QWidget):
             leaf.setData(0, Qt.ItemDataRole.UserRole, path)
             groups[group].addChild(leaf)
 
+    def set_case(self, case: Case) -> None:
+        """Load a case: populate the tree, select something, validate."""
+        self._case = case
+        self._populate_tree(case)
         self._geometry.set_case(case.path)
         self.refresh_validation()
         self._refresh_mesh_context()
@@ -209,6 +211,46 @@ class PreprocessorView(QWidget):
         self.refresh_validation()
         self._refresh_mesh_context()
         self.case_changed.emit()
+
+    @Slot()
+    def _on_geometry_changed(self) -> None:
+        """Geometry was imported, removed, or turned into meshing dictionaries.
+
+        The file tree is rebuilt as well as the utilities, because generating
+        writes two dictionaries into ``system`` — and a tree that still listed
+        three files after the panel said it had written two more would be telling
+        the user something false about their own case, which is the one thing
+        the tree exists not to do.
+        """
+        self._rebuild_tree()
+        self._refresh_mesh_context()
+        self.refresh_validation()
+        self.case_changed.emit()
+
+    def _rebuild_tree(self) -> None:
+        """Re-read the case's dictionaries, keeping what is open selected.
+
+        Selection is restored rather than reset: the tree is rebuilt underneath a
+        user who was editing a file, and moving them somewhere else because a
+        different file appeared would lose their place for no reason.
+        """
+        if self._case is None:
+            return
+        current = self._current
+        self._populate_tree(self._case)
+        if current is not None:
+            self._select_path(current)
+        if self._tree.currentItem() is None:
+            self._select_first_editable()
+
+    def _select_path(self, wanted: Path) -> None:
+        for index in range(self._tree.topLevelItemCount()):
+            group = self._tree.topLevelItem(index)
+            for child_index in range(group.childCount()):
+                child = group.child(child_index)
+                if child.data(0, Qt.ItemDataRole.UserRole) == wanted:
+                    self._tree.setCurrentItem(child)
+                    return
 
     def _select_first_editable(self) -> None:
         """Open a dictionary the form can edit, rather than whatever sorts first.

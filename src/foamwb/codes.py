@@ -156,6 +156,16 @@ class ErrorCode:
         "E-C15", "The case could not be written there", "cases/new-case-not-writable"
     )
 
+    NO_GEOMETRY_TO_MESH = _c(
+        "E-C16", "There is no geometry to mesh around", "cases/no-geometry-to-mesh"
+    )
+
+    MESH_DICT_EXISTS = _c(
+        "E-C17", "The meshing dictionaries are already there", "cases/mesh-dict-exists"
+    )
+    """A case that arrived with its own tuned ``snappyHexMeshDict`` must not lose
+    it to a button labelled *Generate*. Overwriting is offered, never assumed."""
+
     CAD_CONVERSION_FAILED = _c("E-C12", "CAD conversion failed", "cases/cad-conversion-failed")
     """The converter ran and did not produce a usable surface. Carries the
     tool's own output, because the cause is in the model — an unhealed solid, a

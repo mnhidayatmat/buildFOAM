@@ -227,3 +227,116 @@ class TestSignals:
 
         with qtbot.waitSignal(panel.geometry_changed, timeout=1000):
             panel.import_file(source)
+
+
+class TestMeshSection:
+    """FR-P3 — the geometry can actually be meshed once imported."""
+
+    def _with_geometry(self, panel: GeometryPanel, case: Path, tmp_path: Path) -> None:
+        source = tmp_path / "wing.stl"
+        source.write_text(ASCII_STL)
+        panel.set_case(case)
+        panel.import_file(source)
+
+    def test_generating_is_refused_before_geometry_exists(
+        self, panel: GeometryPanel, case: Path
+    ) -> None:
+        panel.set_case(case)
+        assert not panel.can_generate
+
+    def test_generating_is_offered_once_geometry_is_imported(
+        self, panel: GeometryPanel, case: Path, tmp_path: Path
+    ) -> None:
+        self._with_geometry(panel, case, tmp_path)
+        assert panel.can_generate
+
+    def test_the_domain_and_cell_count_are_shown_before_generating(
+        self, panel: GeometryPanel, case: Path, tmp_path: Path
+    ) -> None:
+        # The cell count decides whether meshing takes a minute or an hour, so
+        # it has to move while the user is choosing rather than after.
+        self._with_geometry(panel, case, tmp_path)
+        assert panel.domain_text
+        assert "cells" in panel.domain_text.lower()
+
+    def test_changing_a_control_re_derives_the_domain(
+        self, panel: GeometryPanel, case: Path, tmp_path: Path
+    ) -> None:
+        self._with_geometry(panel, case, tmp_path)
+        before = panel.plan.background_cell_count
+        panel._cells.setValue(80)
+        assert panel.plan.background_cell_count != before
+
+    def test_the_flow_region_reaches_the_plan(
+        self, panel: GeometryPanel, case: Path, tmp_path: Path
+    ) -> None:
+        self._with_geometry(panel, case, tmp_path)
+        external = panel.plan.location_in_mesh
+        panel._region.setCurrentIndex(1)  # internal
+        assert panel.plan.location_in_mesh != external
+
+    def test_generating_writes_both_dictionaries(
+        self, panel: GeometryPanel, case: Path, tmp_path: Path
+    ) -> None:
+        self._with_geometry(panel, case, tmp_path)
+        assert panel.generate_dictionaries()
+        assert (case / "system" / "blockMeshDict").is_file()
+        assert (case / "system" / "snappyHexMeshDict").is_file()
+
+    def test_generating_makes_the_meshing_utilities_available(
+        self, panel: GeometryPanel, case: Path, tmp_path: Path
+    ) -> None:
+        """The dead end this closes: geometry with no way to mesh it."""
+        from foamwb.services.mesh import available_utilities
+
+        self._with_geometry(panel, case, tmp_path)
+        assert not {u.name for u in available_utilities(case, meshed=False)} & {
+            "blockMesh",
+            "snappyHexMesh",
+        }
+        panel.generate_dictionaries()
+        assert {"blockMesh", "snappyHexMesh"} <= {
+            u.name for u in available_utilities(case, meshed=False)
+        }
+
+    def test_the_button_says_replace_when_something_would_be_lost(
+        self, panel: GeometryPanel, case: Path, tmp_path: Path
+    ) -> None:
+        self._with_geometry(panel, case, tmp_path)
+        assert panel.generate_text == panel._labels["generate_mesh_dicts"]
+
+        panel.generate_dictionaries()
+        # Now the dictionaries exist, so the act is a replacement and the label
+        # is where that difference is visible.
+        assert panel.generate_text == panel._labels["replace_mesh_dicts"]
+
+    def test_replacing_asks_first(self, panel: GeometryPanel, case: Path, tmp_path: Path) -> None:
+        self._with_geometry(panel, case, tmp_path)
+        (case / "system" / "snappyHexMeshDict").write_text("// tuned by hand\n")
+        panel.refresh()
+
+        asked: list[str] = []
+        panel.set_dialogs(confirm=lambda title, _body: asked.append(title) or False)
+
+        assert not panel.generate_dictionaries()
+        assert asked, "a tuned dictionary was about to be replaced without asking"
+        assert "tuned by hand" in (case / "system" / "snappyHexMeshDict").read_text()
+
+    def test_confirming_the_replacement_writes(
+        self, panel: GeometryPanel, case: Path, tmp_path: Path
+    ) -> None:
+        self._with_geometry(panel, case, tmp_path)
+        (case / "system" / "snappyHexMeshDict").write_text("// tuned\n")
+        panel.refresh()
+        panel.set_dialogs(confirm=lambda _t, _b: True)
+
+        assert panel.generate_dictionaries()
+        assert "castellatedMesh" in (case / "system" / "snappyHexMeshDict").read_text()
+
+    def test_removing_the_last_surface_withdraws_the_offer(
+        self, panel: GeometryPanel, case: Path, tmp_path: Path
+    ) -> None:
+        self._with_geometry(panel, case, tmp_path)
+        panel.select(0)
+        panel.remove_selected()
+        assert not panel.can_generate

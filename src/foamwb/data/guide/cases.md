@@ -209,3 +209,50 @@ owned by another user.
 Choose somewhere inside your home directory. Avoid creating cases inside the
 OpenFOAM installation itself — on most systems that needs administrator rights,
 and a case there is lost when the runtime is updated.
+
+## No geometry to mesh
+
+**E-C16.** There is no surface in the case to build a mesh around.
+
+`snappyHexMesh` cuts a background mesh down onto a surface, so it needs one.
+Import an STL, OBJ, STEP or IGES file in the *Geometry* tab first.
+
+If you imported something and it is not listed, it was rejected as unreadable —
+see **Geometry unreadable** above.
+
+You do not need this path at all if your case is meshed by `blockMesh` alone.
+A case with its own `blockMeshDict` already offers *blockMesh* in the *Mesh* tab.
+
+## Mesh dict exists
+
+**E-C17.** The case already has `blockMeshDict`, `snappyHexMeshDict`, or both.
+
+Nothing was written. These may be dictionaries you or a tutorial tuned, and
+regenerating them would discard that work — the generated pair is a sensible
+starting point, not an improvement on something already set up.
+
+Choose *Replace* if you want the generated versions. The existing files are
+overwritten at that point, so copy them elsewhere first if you may want them
+back.
+
+## The generated mesh is empty or inside out
+
+Not an error code — `snappyHexMesh` reports success and produces a mesh that is
+empty, or that contains the inside of your solid rather than the fluid around it.
+
+Almost always `locationInMesh`, in `system/snappyHexMeshDict`. It names a point
+in the region to **keep**:
+
+- **Flow around a body** (external): the point must be outside the surface,
+  somewhere in the open space of the domain. Generated near a corner, which the
+  padding keeps empty.
+- **Flow through a duct** (internal): the point must be inside the surface.
+  Generated at the centre of the geometry's bounding box, which is right for a
+  straight duct and can fall in the solid for a strongly curved one.
+
+If the generated point is wrong, set it yourself in the *Mesh* tab or edit the
+entry directly. Choosing the wrong *flow region* when generating produces exactly
+this symptom, and switching it and regenerating is the quickest fix.
+
+A second cause, much rarer: the surface is not closed, so there is no inside and
+outside to separate. `surfaceCheck` on the STL reports this.

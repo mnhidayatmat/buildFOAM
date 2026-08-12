@@ -254,6 +254,29 @@ def preprocessor_strings() -> dict[str, str]:
         ),
         "geometry_remove": _("Remove"),
         "geometry_removed": _("Removed {0}."),
+        # Building a mesh around the imported geometry (FR-P3)
+        "mesh_from_geometry": _("Mesh around this geometry"),
+        "flow_region": _("Flow is"),
+        "flow_external": _("Around the body (external)"),
+        "flow_internal": _("Through the body (internal)"),
+        "flow_region_help": _(
+            "This decides which side of the surface the fluid is on. Getting it "
+            "wrong is the usual reason a mesh comes out empty or inside out."
+        ),
+        "refinement_levels": _("Surface refinement"),
+        "refinement_range": _("{0} to {1}"),
+        "background_cells": _("Background cells (longest axis)"),
+        "domain_summary": _("Domain {0} x {1} x {2}, {3} background cells before refinement."),
+        "generate_mesh_dicts": _("Generate Mesh Settings"),
+        "replace_mesh_dicts": _("Replace Mesh Settings"),
+        "mesh_dicts_written": _("Wrote blockMeshDict and snappyHexMeshDict. Mesh tab is next."),
+        "mesh_dicts_exist": _("This case already has {0}. Generating would replace it."),
+        "mesh_dicts_failed": _("{0}  ({1})"),
+        "confirm_replace_title": _("Replace the meshing dictionaries?"),
+        "confirm_replace_body": _(
+            "{0} will be overwritten. If you tuned it by hand, copy it somewhere "
+            "else first — this cannot be undone."
+        ),
         "form_tab": _("Form"),
         "form_tab_unavailable": _("Form (not available)"),
         "text_tab": _("Text"),

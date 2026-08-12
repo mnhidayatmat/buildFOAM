@@ -28,9 +28,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from foamwb.branding import APP_DISPLAY_NAME
 from foamwb.codes import Code, ErrorCode
 from foamwb.logs import Event, get_logger, log_event
+from foamwb.services.foamwrite import dictionary
 
 __all__ = [
     "DEFAULT_APPLICATION",
@@ -92,25 +92,6 @@ def is_valid_name(name: str) -> bool:
         return False
     return not (set(name) & _FORBIDDEN)
 
-
-#: A file-format header, not a release. The ``version`` here is the dictionary
-#: format's own — 2.0 for every OpenFOAM release in living memory — which is why
-#: it is a literal rather than something read from the runtime manifest.
-_HEADER = """\
-/*--------------------------------*- C++ -*----------------------------------*\\
-| Written by {product}. This is an ordinary OpenFOAM case:                     |
-| nothing here depends on the application that created it.                     |
-\\*---------------------------------------------------------------------------*/
-FoamFile
-{{
-    version     2.0;
-    format      ascii;
-    class       dictionary;
-    object      {object};
-}}
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
-
-"""
 
 _CONTROL_DICT = """\
 application     {application};
@@ -219,10 +200,6 @@ relaxationFactors
 """
 
 
-def _dictionary(object_name: str, body: str) -> bytes:
-    return (_HEADER.format(product=APP_DISPLAY_NAME, object=object_name) + body).encode("utf-8")
-
-
 def create_case(
     parent: Path,
     name: str,
@@ -251,11 +228,11 @@ def create_case(
         )
 
     files = {
-        Path("system") / "controlDict": _dictionary(
+        Path("system") / "controlDict": dictionary(
             "controlDict", _CONTROL_DICT.format(application=application)
         ),
-        Path("system") / "fvSchemes": _dictionary("fvSchemes", _FV_SCHEMES),
-        Path("system") / "fvSolution": _dictionary("fvSolution", _FV_SOLUTION),
+        Path("system") / "fvSchemes": dictionary("fvSchemes", _FV_SCHEMES),
+        Path("system") / "fvSolution": dictionary("fvSolution", _FV_SOLUTION),
     }
 
     try:
