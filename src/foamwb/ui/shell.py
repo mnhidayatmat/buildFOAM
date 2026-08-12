@@ -49,6 +49,7 @@ from foamwb.services.runtime import (
     load_manifest,
 )
 from foamwb.services.settings import DEFAULT_THEME, SettingsService, ThemeChoice
+from foamwb.services.validation import validate_case
 from foamwb.services.workflow import StepState, WorkflowModel, step_by_id
 from foamwb.ui import strings
 from foamwb.ui.appearance import resolve_palette
@@ -168,7 +169,18 @@ class Shell(QMainWindow):
         # their size hints and the procedure — the thing §7.2 asks the user to
         # read down — opens already scrolled, above a property table that is
         # empty until they pick a step from it.
-        left.setSizes([520, 200])
+        # Sized so the whole procedure — including the Reference group at its
+        # foot — is on screen without scrolling at the window's own minimum
+        # height. A list that must be scrolled to discover its last section is a
+        # list whose shape the user never learns, which is the entire point of
+        # showing it this way.
+        left.setSizes([600, 160])
+        # Wide enough for the longest row the panel can produce — a step name
+        # plus its state word. Below this the tree elides, and "Material
+        # prope…" beside "Boundary con…" is a list of steps whose names the user
+        # cannot read, which is worse than a narrower main panel. Ctrl+B still
+        # hides the column outright when the space is genuinely needed.
+        left.setMinimumWidth(240)
 
         row = QSplitter(Qt.Orientation.Horizontal)
         self._left = left
@@ -311,6 +323,7 @@ class Shell(QMainWindow):
         self._workflow.set_model(
             WorkflowModel(
                 case=case,
+                checks_passed=self._checks_pass(case),
                 has_mesh=bool(case and (case / "constant" / "polyMesh").is_dir()),
                 has_results=bool(
                     case
@@ -321,6 +334,21 @@ class Shell(QMainWindow):
                 ),
             )
         )
+
+    def _checks_pass(self, case: Path | None) -> bool:
+        """Whether validation finds nothing that would stop a run (FR-C3).
+
+        Swallows its own failures deliberately. This decides a tick in a list; a
+        case whose dictionaries cannot be parsed has bigger problems, and they
+        are reported by the Check setup view itself rather than by an exception
+        thrown while drawing the navigation panel.
+        """
+        if case is None:
+            return False
+        try:
+            return not validate_case(self._cases.open(case)).blocking
+        except Exception:
+            return False
 
     def _install_shortcuts(self) -> None:
         # Ctrl+B hides the workflow column, matching the convention users already

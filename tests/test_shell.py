@@ -23,7 +23,7 @@ from foamwb.codes import ErrorCode
 from foamwb.services.recents import RecentCase
 from foamwb.services.runtime import RuntimeKind, RuntimeState, RuntimeStatus
 from foamwb.services.settings import SettingsService, ThemeChoice
-from foamwb.services.workflow import STEPS
+from foamwb.services.workflow import STEPS, step_by_id
 from foamwb.ui.navrail import NAV_ITEMS
 from foamwb.ui.shell import Shell
 from foamwb.ui.theme import DARK, LIGHT
@@ -124,7 +124,7 @@ class TestWorkflowNavigation:
         assert len(set(STATE_GLYPHS.values())) == len(STATE_GLYPHS)
 
     def test_the_panel_says_what_to_do_next(self, shell: Shell) -> None:
-        assert "Open or create" in shell.workflow.next_text
+        assert "Open a case" in shell.workflow.next_text
 
     def test_the_panel_can_be_collapsed_from_the_keyboard(self, shell: Shell) -> None:
         """NFR-A1 — a splitter that needs dragging is not keyboard-operable."""
@@ -690,3 +690,97 @@ class TestCaseFolder:
         shell.reveal_case_folder()
         # The path is named, so the user can still get there by hand.
         assert reported and "wing" in reported[-1][1]
+
+
+class TestTheProcedureReadsAsOne:
+    """§7.2 — the panel has to be legible as an ordered procedure.
+
+    Users reported the list as hard to understand, and the audit found why: group
+    headers and steps shared an indent level, four near-identical glyphs carried
+    every state with no legend, nothing was numbered, and two reference pages sat
+    in the list as though they were steps. These assert the fixes, because each
+    one is the kind of thing that quietly regresses when a step is added.
+    """
+
+    def test_every_step_lives_inside_a_group(self) -> None:
+        # Headers and steps shared indentation before, so structure and content
+        # were told apart only by the presence of a glyph.
+        for step in STEPS:
+            if not step.is_group:
+                assert step.parent, f"{step.id} is a step with no group"
+
+    def test_only_the_required_steps_are_numbered(self, shell: Shell, tmp_path) -> None:
+        shell.open_case(_cavity(tmp_path))
+        model = shell.workflow.model
+        for step in STEPS:
+            number = model.number_of(step)
+            if step.required:
+                assert number is not None, f"{step.id} is required but unnumbered"
+            else:
+                assert number is None, f"{step.id} is optional but numbered"
+
+    def test_the_numbers_run_from_one_without_gaps(self, shell: Shell) -> None:
+        model = shell.workflow.model
+        numbers = [model.number_of(s) for s in STEPS if s.required]
+        assert numbers == list(range(1, len(numbers) + 1))
+
+    def test_a_done_step_shows_a_tick_rather_than_its_number(self, shell: Shell, tmp_path) -> None:
+        shell.open_case(_cavity(tmp_path))
+        # case.open is done the moment a case is open.
+        assert "✓" in shell.workflow.text_of("case.open")
+
+    def test_an_outstanding_step_shows_its_position(self, shell: Shell, tmp_path) -> None:
+        shell.open_case(_cavity(tmp_path))
+        assert "2" in shell.workflow.text_of("mesh.generate")
+
+    def test_a_blocked_row_says_so_in_words_on_the_row(self, shell: Shell) -> None:
+        """Not only in a tooltip.
+
+        "Why can I not click this?" is the question the panel most needed to
+        answer, and a tooltip answers it only for someone using a mouse who
+        already suspected there was something to hover over.
+        """
+        assert "not yet" in shell.workflow.text_of("execute")
+
+    def test_an_available_row_is_not_cluttered_with_its_state(self, shell: Shell, tmp_path) -> None:
+        # Saying "ready" on every ordinary row is noise, not information.
+        shell.open_case(_cavity(tmp_path))
+        assert "ready" not in shell.workflow.text_of("conditions.basic")
+
+    def test_progress_is_reported(self, shell: Shell, tmp_path) -> None:
+        shell.open_case(_cavity(tmp_path))
+        done, total = shell.workflow.model.progress
+        assert total == len([s for s in STEPS if s.required])
+        assert f"{done} of {total}" in shell.workflow.progress_text
+
+    def test_progress_moves_when_a_step_completes(self, shell: Shell, tmp_path) -> None:
+        case = _cavity(tmp_path)
+        shell.open_case(case)
+        before, _ = shell.workflow.model.progress
+
+        (case / "constant" / "polyMesh").mkdir(parents=True)
+        shell.open_case(case)
+        after, _ = shell.workflow.model.progress
+        assert after > before
+
+    def test_reference_pages_are_not_part_of_the_procedure(self) -> None:
+        # They used to sit beside Execute and Results, reading as steps 12 and 13.
+        for step_id in ("library", "guide"):
+            step = step_by_id(step_id)
+            assert step.reference
+            assert not step.required
+
+    def test_a_reference_page_never_becomes_the_next_step(self, shell: Shell) -> None:
+        model = shell.workflow.model
+        following = model.next_step
+        assert following is None or not following.reference
+
+    def test_clicking_a_group_folds_it_rather_than_doing_nothing(self, shell: Shell) -> None:
+        """A header that swallows a click reads as broken."""
+        nav = shell.workflow
+        item = nav._items["conditions"]
+        assert item.isExpanded()
+        nav._on_clicked(item, 0)
+        assert not item.isExpanded()
+        nav._on_clicked(item, 0)
+        assert item.isExpanded()

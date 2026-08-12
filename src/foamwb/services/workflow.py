@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import ClassVar
 
 __all__ = [
+    "REQUIRED_STEPS",
     "STEPS",
     "Phase",
     "Step",
@@ -113,6 +114,15 @@ class Step:
     phase: Phase | None = None
     """The phase this step belongs to, if it is gated by one."""
 
+    reference: bool = False
+    """A place to look something up, not a step in the procedure.
+
+    The Library and the Guide were in the list beside Execute and Results, which
+    reads as "step twelve is: consult the guide". They are still reachable from
+    the same panel — this is not a demotion — but they are drawn below the
+    procedure rather than inside it, so the numbered spine ends where the work
+    ends."""
+
     @property
     def is_group(self) -> bool:
         return self.kind is StepKind.GROUP
@@ -128,6 +138,13 @@ class Step:
 #: Region" is our boundary patches. Its "Octree/Mesh Parameter" collapse into one
 #: mesh-settings page, because blockMesh and snappyHexMesh do not share an octree
 #: abstraction and pretending they do would be a lie about the tool underneath.
+#: **Every step lives inside exactly one group.** The first version left six
+#: entries — materials, verify, execute, results, vandv — at the top level, where
+#: they sat at the same indentation as the group *headers* and were told apart
+#: only by a four-pixel glyph. Structure and content were indistinguishable at a
+#: glance, which is the single thing users reported as making the panel hard to
+#: read. A strict two-level tree costs one extra header and removes the ambiguity
+#: entirely.
 STEPS: tuple[Step, ...] = (
     Step("case", kind=StepKind.GROUP, needs_case=False),
     Step("case.open", parent="case", view="hub", needs_case=False, required=True),
@@ -142,21 +159,31 @@ STEPS: tuple[Step, ...] = (
         phase=Phase.MESH,
         required=True,
     ),
-    Step("materials", view="cases"),
     Step("conditions", kind=StepKind.GROUP),
+    # Material properties belong with the physics rather than floating above it:
+    # viscosity and the turbulence model are conditions of the problem in exactly
+    # the sense the rest of this group is.
+    Step("materials", parent="conditions", view="cases"),
     Step("conditions.type", parent="conditions", view="vv"),
     Step("conditions.basic", parent="conditions", view="cases"),
     Step("conditions.initial", parent="conditions", view="initial"),
     Step("conditions.boundary", parent="conditions", view="cases"),
     Step("conditions.control", parent="conditions", view="cases"),
     Step("conditions.output", parent="conditions", view="cases"),
-    Step("verify", view="verify", required=True),
-    Step("execute", view="run", needs_mesh=True, required=True),
-    Step("results", view="post", needs_mesh=True),
-    Step("vandv", view="vv", needs_mesh=True),
-    Step("library", view="library", needs_case=False),
-    Step("guide", view="guide", needs_case=False),
+    Step("solution", kind=StepKind.GROUP),
+    Step("verify", parent="solution", view="verify", required=True),
+    Step("execute", parent="solution", view="run", needs_mesh=True, required=True),
+    Step("results", parent="solution", view="post", needs_mesh=True),
+    Step("vandv", parent="solution", view="vv", needs_mesh=True),
+    Step("reference", kind=StepKind.GROUP, needs_case=False, reference=True),
+    Step("library", parent="reference", view="library", needs_case=False, reference=True),
+    Step("guide", parent="reference", view="guide", needs_case=False, reference=True),
 )
+
+#: The numbered spine, in order. These are the steps a case cannot run without,
+#: and the only ones that carry a number — which is what makes "required" and
+#: "optional" visible without a legend to learn.
+REQUIRED_STEPS: tuple[Step, ...] = tuple(step for step in STEPS if step.required)
 
 
 def step_by_id(step_id: str) -> Step | None:
@@ -176,6 +203,15 @@ class WorkflowModel:
     case: Path | None = None
     has_mesh: bool = False
     has_results: bool = False
+    checks_passed: bool = False
+    """Whether validation found nothing that would stop a run.
+
+    Needed because *Check setup* is part of the spine and had no evidence of its
+    own, so it could never be reported done. That was invisible while the panel
+    only named the next step, and plainly wrong the moment it started counting:
+    progress could not reach the total, and "Next: Check setup" persisted after
+    the case had been meshed, run and post-processed."""
+
     solver: str = ""
     _overrides: dict[str, StepState] = field(default_factory=dict)
 
@@ -191,6 +227,10 @@ class WorkflowModel:
     _EVIDENCE: ClassVar[dict] = {
         "case.open": lambda self: self.case is not None,
         "mesh.generate": lambda self: self.has_mesh,
+        # Passing the checks *is* the evidence. Not a claim the physics is right
+        # — validation only reports self-contradiction — which is why the step
+        # stays available afterwards rather than being locked away.
+        "verify": lambda self: self.checks_passed,
         "execute": lambda self: self.has_results,
     }
 
@@ -237,11 +277,35 @@ class WorkflowModel:
         which are references rather than steps in the procedure.
         """
         for step in STEPS:
-            if not step.required:
+            if not step.required or step.reference:
                 continue
             if self.state_of(step) is StepState.AVAILABLE:
                 return step
         return None
+
+    def number_of(self, step: Step) -> int | None:
+        """This step's position in the numbered spine, or ``None`` if optional.
+
+        The number *is* the distinction between "you must do this" and "you may
+        want this". Twenty-one identically marked rows read as twenty-one
+        obligations; four numbered ones among them read as a procedure with
+        optional detail hanging off it, which is what this actually is.
+        """
+        for position, candidate in enumerate(REQUIRED_STEPS, start=1):
+            if candidate.id == step.id:
+                return position
+        return None
+
+    @property
+    def progress(self) -> tuple[int, int]:
+        """How many required steps are done, out of how many.
+
+        Answers "how far along am I?", which the panel could not previously
+        answer at all — the only progress signal was a "Next:" line that names
+        one step and says nothing about the shape of what is left.
+        """
+        done = sum(1 for step in REQUIRED_STEPS if self.state_of(step) is StepState.DONE)
+        return done, len(REQUIRED_STEPS)
 
     def is_locked_phase(self, step: Step) -> bool:
         """Whether this step belongs to a phase the case has moved past.

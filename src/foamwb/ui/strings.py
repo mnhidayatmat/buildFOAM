@@ -480,8 +480,8 @@ def workflow_strings() -> dict[str, str]:
         "messages": _("Messages"),
         # The steps, in order.
         "step.case": _("Case"),
-        "step.case.open": _("Open or create"),
-        "step.case.files": _("Case files"),
+        "step.case.open": _("Open a case"),
+        "step.case.files": _("All case files"),
         "step.mesh": _("Mesh"),
         "step.mesh.settings": _("Mesh settings"),
         "step.mesh.regions": _("Regions and patches"),
@@ -494,10 +494,12 @@ def workflow_strings() -> dict[str, str]:
         "step.conditions.boundary": _("Boundary conditions"),
         "step.conditions.control": _("Solution control"),
         "step.conditions.output": _("Output"),
+        "step.solution": _("Solution"),
         "step.verify": _("Check setup"),
-        "step.execute": _("Execute"),
+        "step.execute": _("Run"),
         "step.results": _("Results"),
-        "step.vandv": _("Verification"),
+        "step.vandv": _("Turbulence and y+"),
+        "step.reference": _("Reference"),
         "step.library": _("Library"),
         "step.guide": _("Guide"),
         # What each step is for, shown when it is selected. One sentence.
@@ -523,6 +525,12 @@ def workflow_strings() -> dict[str, str]:
         "state.blocked": _("not yet"),
         "state.locked": _("locked"),
         "next_step": _("Next: {0}"),
+        # Marker, then label. A required step's marker is its number in the
+        # spine, or a tick once done; an optional step keeps a state glyph.
+        "step_row_state": _("{0}  {1} — {2}"),
+        "step_done_number": _("\u2713 {0}"),
+        "workflow_progress": _("{0} of {1} done"),
+        "workflow_progress_none": _("Open a case to begin."),
         "nothing_outstanding": _("Every required step is done."),
         "return_to_mesh": _("Return to mesh"),
         "locked_explains": _("The mesh is built. Return to mesh to change it."),
