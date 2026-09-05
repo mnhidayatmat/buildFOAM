@@ -1,7 +1,11 @@
-"""The Run view (§7.5).
+"""The Run Calculation task page (§7.5, DEC-21).
 
-Four regions, as specified: the plan as a stage strip across the top, the log on
-the left, monitor plots on the right, and the stop control along the bottom.
+Fluent's *Run Calculation* task page: the plan, the iteration controls, and the
+button that starts it — in the column beside the outline, while the transcript
+goes to the console dock and the residuals to the graphics window. The log and
+the plot are therefore *given* to this view rather than owned by it, because
+there is one console and one residual plot in the window and several things
+write to them.
 
 **Destructive actions are never the default button** (§7.9 rule 5). *Stop & Write*
 is the primary control; *Stop Now* and *Force Kill* live behind a menu. This is
@@ -72,15 +76,29 @@ class RunView(QWidget):
         palette: Palette,
         labels: dict[str, str],
         parent: QWidget | None = None,
+        *,
+        log: LogPane | None = None,
+        residuals: ResidualPlot | None = None,
     ) -> None:
+        """``log`` and ``residuals`` are the window's, when the window has them.
+
+        Both default to private copies so the view can still be constructed on
+        its own in a test, where a shared console would be a fixture with
+        nothing in it.
+        """
         super().__init__(parent)
         self._palette = palette
         self._labels = labels
+        self._owns_panes = log is None and residuals is None
 
         self._session: RuntimeSession | None = None
         self._cases = CaseService()
         self._case: Path | None = None
         self._plan: RunPlan | None = None
+        #: The plan actually executing, which is the case's own unless *Update*
+        #: supplied a narrower one. Recorded in the history, so a run report says
+        #: what ran rather than what could have.
+        self._running_plan: RunPlan | None = None
         self._worker: RunWorker | None = None
         self._monitor: MonitorService | None = None
         self._run_id = "r-0001"
@@ -90,7 +108,8 @@ class RunView(QWidget):
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(10)
 
-        self._strip = StageStrip(palette, labels)
+        # Stacked in the task page, across the top when the view stands alone.
+        self._strip = StageStrip(palette, labels, vertical=not self._owns_panes)
         layout.addWidget(self._strip)
 
         # Above the log, not inside it: a diverging run's log scrolls fast, and a
@@ -100,21 +119,21 @@ class RunView(QWidget):
         self._banner.guide_requested.connect(self.guide_requested)
         layout.addWidget(self._banner)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._log = LogPane(palette, labels)
-        splitter.addWidget(self._log)
-
-        self._plots = QTabWidget()
-        self._plots.setAccessibleName(labels["monitors"])
-        self._residuals = ResidualPlot(palette, labels)
+        self._log = log or LogPane(palette, labels)
+        self._residuals = residuals or ResidualPlot(palette, labels)
         self._residuals.export_requested.connect(self._export_csv)
-        self._plots.addTab(self._residuals, labels["residuals"])
-        splitter.addWidget(self._plots)
-
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
-        layout.addWidget(splitter, stretch=1)
+        if self._owns_panes:
+            splitter = QSplitter(Qt.Orientation.Horizontal)
+            splitter.addWidget(self._log)
+            self._plots = QTabWidget()
+            self._plots.setAccessibleName(labels["monitors"])
+            self._plots.addTab(self._residuals, labels["residuals"])
+            splitter.addWidget(self._plots)
+            splitter.setStretchFactor(0, 3)
+            splitter.setStretchFactor(1, 2)
+            layout.addWidget(splitter, stretch=1)
         layout.addWidget(self._build_controls(labels))
+        layout.addStretch(1)
 
         self._timer = QTimer(self)
         self._timer.setInterval(MONITOR_POLL_MS)
@@ -123,14 +142,31 @@ class RunView(QWidget):
         self._set_idle()
 
     def _build_controls(self, labels: dict[str, str]) -> QWidget:
+        """The status sentence and the two stop levels.
+
+        Stacked when the view is in the task page: a status line and two
+        buttons across a 340-pixel column leaves "pitzDaily is ready to" cut
+        off mid-sentence, and the sentence is the part that says whether
+        pressing Run will work.
+        """
         bar = QWidget()
-        row = QHBoxLayout(bar)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(8)
+        column = QVBoxLayout(bar)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(6)
 
         self._status = QLabel()
         self._status.setProperty("role", "muted")
-        row.addWidget(self._status, stretch=1)
+        self._status.setWordWrap(True)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+
+        if self._owns_panes:
+            row.addWidget(self._status, stretch=1)
+        else:
+            column.addWidget(self._status)
+            row.addStretch(1)
 
         self._run_button = QPushButton(labels["run"])
         self._run_button.setDefault(True)
@@ -153,6 +189,7 @@ class RunView(QWidget):
             action.triggered.connect(lambda _checked=False, m=mode: self._confirm_stop(m))
         self._stop_button.setMenu(menu)
         row.addWidget(self._stop_button)
+        column.addLayout(row)
         return bar
 
     # -- configuration -----------------------------------------------------
@@ -162,6 +199,7 @@ class RunView(QWidget):
         self._session = session
         self._case = case
         self._plan = plan
+        self._running_plan = plan
         self._monitor = MonitorService(case)
         self._strip.set_plan(plan)
         self._status.setText(self._labels["ready_to_run"].format(case.name))
@@ -169,15 +207,26 @@ class RunView(QWidget):
 
     # -- lifecycle ---------------------------------------------------------
 
-    def start(self) -> None:
-        if self._session is None or self._plan is None or self._case is None:
+    def start(self, plan: RunPlan | None = None) -> None:
+        """Run the case's plan, or a different one for this run only (DEC-22).
+
+        *Update* passes a plan whose fresh stages are already skipped. It is
+        given per run rather than swapped into :attr:`_plan`, so pressing
+        *Calculate* afterwards still means the whole plan — one button that
+        quietly changed what another button did would be the worse bargain.
+        """
+        if self._session is None or self._case is None:
+            return
+        plan = plan or self._plan
+        if plan is None:
             return
         if self._worker is not None and self._worker.is_running:
             return
 
+        self._running_plan = plan
         self._log.clear()
         self._residuals.clear()
-        self._strip.set_plan(self._plan)
+        self._strip.set_plan(plan)
 
         # FR-S3: monitoring is installed at launch, not at open. Opening someone
         # else's case must not modify it (§5.1); pressing Run is the consent.
@@ -197,7 +246,7 @@ class RunView(QWidget):
 
         self._worker = RunWorker(
             self._session,
-            self._plan,
+            plan,
             log_dir=self._case / CASE_METADATA_DIR / "logs" / self._run_id,
         )
         self._worker.lines.connect(self._on_lines)
@@ -210,6 +259,15 @@ class RunView(QWidget):
         self._timer.start()
         self._worker.start()
         self.run_started.emit()
+
+    def say(self, message: str) -> None:
+        """Put a sentence in the status line without running anything.
+
+        *Update* needs it: "everything is up to date" is the answer to a
+        question the user asked, and answering it by doing nothing visible would
+        read as a button that failed.
+        """
+        self._status.setText(message)
 
     def stop(self, mode: StopMode = StopMode.WRITE) -> None:
         if self._worker is not None and self._worker.is_running:
@@ -328,7 +386,9 @@ class RunView(QWidget):
                     finished=datetime.now(UTC).isoformat(timespec="seconds"),
                     exit_code=(result.failed_stage.exit_code if result.failed_stage else 0),
                     plan=tuple(s.name for s in result.stages),
-                    n_procs=self._plan.n_procs if self._plan else 1,
+                    n_procs=(self._running_plan or self._plan).n_procs
+                    if (self._running_plan or self._plan)
+                    else 1,
                     wall_seconds=round(result.wall_seconds, 3),
                     final_time=self._latest_time(),
                     converged=result.succeeded,
@@ -383,11 +443,17 @@ class RunView(QWidget):
     # -- state -------------------------------------------------------------
 
     def set_palette(self, palette: Palette) -> None:
-        """Adopt a new palette and pass it to everything this view owns (NFR-A4)."""
+        """Adopt a new palette and pass it to everything this view owns (NFR-A4).
+
+        The log and the plot are repainted only when they belong to this view:
+        a shared one is the shell's, and repainting it twice would be harmless
+        but would leave two owners for one widget.
+        """
         self._palette = palette
         self._strip.set_palette(palette)
-        self._log.set_palette(palette)
-        self._residuals.set_palette(palette)
+        if self._owns_panes:
+            self._log.set_palette(palette)
+            self._residuals.set_palette(palette)
 
     def _set_running(self) -> None:
         self._run_button.setEnabled(False)

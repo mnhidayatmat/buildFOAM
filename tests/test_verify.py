@@ -176,23 +176,23 @@ class TestTheMeshSettingsSchema:
         assert load_schema("blockMeshDict") is not None
 
     def test_scale_is_described_with_its_unit(self, case) -> None:
-        group = groups_for_step(case, "mesh.settings")[0]
+        group = groups_for_step(case, "workflow.sizing")[0]
         row = next(r for r in group.rows if r.path == "scale")
         assert row.label == "Scale"
         assert row.unit == "m"
 
     def test_the_structural_entries_are_shown_and_marked(self, case) -> None:
         """A form offering "vertex 3" would invite topology-breaking edits."""
-        group = groups_for_step(case, "mesh.settings")[0]
+        group = groups_for_step(case, "workflow.sizing")[0]
         structural = {r.path for r in group.rows if r.unknown}
         assert {"vertices", "blocks", "boundary"} <= structural
 
     def test_structural_entries_are_not_editable_here(self, case) -> None:
-        group = groups_for_step(case, "mesh.settings")[0]
+        group = groups_for_step(case, "workflow.sizing")[0]
         assert all(not r.editable for r in group.rows if r.unknown)
 
     def test_the_file_header_is_not_a_setting(self, case) -> None:
         """FoamFile would otherwise head every panel with file metadata."""
-        for step in ("mesh.settings", "conditions.basic"):
+        for step in ("workflow.sizing", "setup.general"):
             for group in groups_for_step(case, step):
                 assert all(r.path != "FoamFile" for r in group.rows)

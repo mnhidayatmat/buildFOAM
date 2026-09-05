@@ -377,6 +377,53 @@ def _surface_name(surface: Surface) -> str:
     return surface.path.stem
 
 
+def _refinement_regions(surface: Surface, settings: MeshSettings) -> str:
+    """Per-region refinement, so each named face becomes its own patch.
+
+    The level is the surface's own for now — the point of the entry is the
+    ``patchInfo``, which is what makes ``snappyHexMesh`` emit a patch per region
+    rather than folding them all into one. Per-region *levels* are the next thing
+    this block will carry (FR-P3 asks for editable refinement levels); the
+    structure is here so that is an edit to one entry rather than a new block.
+    """
+    if not surface.solids:
+        return ""
+    entries = "\n".join(
+        f"""                {region}
+                {{
+                    level ({settings.refinement_min} {settings.refinement_max});
+                    patchInfo {{ type patch; }}
+                }}"""
+        for region in surface.solids
+    )
+    return f"\n            regions\n            {{\n{entries}\n            }}"
+
+
+def _regions_block(surface: Surface, indent: str) -> str:
+    """The named regions of one surface, as ``snappyHexMesh`` addresses them.
+
+    This is where a name typed on the geometry page becomes a patch. Without it
+    every solid in the file is meshed into one patch called after the file, and
+    the names the user gave are carried into the case and then ignored — which
+    is worse than not offering to name them at all.
+
+    Empty for a surface with no named solids, which is the ordinary state of a
+    freshly imported file: an empty ``regions`` block would be a promise that
+    there are regions to address.
+    """
+    if not surface.solids:
+        return ""
+    entries = "\n".join(
+        f"""{indent}    {region}
+{indent}    {{
+{indent}        name {region};
+{indent}        patchInfo {{ type patch; }}
+{indent}    }}"""
+        for region in surface.solids
+    )
+    return f"\n{indent}regions\n{indent}{{\n{entries}\n{indent}}}"
+
+
 def render_snappy(plan: MeshPlan) -> bytes:
     """The meshing dictionary, referring to the surfaces already in the case."""
     settings = plan.settings
@@ -384,14 +431,16 @@ def render_snappy(plan: MeshPlan) -> bytes:
         f"""    {surface.name}
     {{
         type triSurfaceMesh;
-        name {_surface_name(surface)};
+        name {_surface_name(surface)};{_regions_block(surface, "        ")}
     }}"""
         for surface in plan.surfaces
     )
     refinement = "\n".join(
         f"""        {_surface_name(surface)}
         {{
-            level ({settings.refinement_min} {settings.refinement_max});
+            level ({settings.refinement_min} {settings.refinement_max});{
+            _refinement_regions(surface, settings)
+        }
         }}"""
         for surface in plan.surfaces
     )

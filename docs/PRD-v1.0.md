@@ -545,33 +545,127 @@ The comparison error is `E = S − D`, simulation minus experimental data. The v
 
 ### 7.1 Shell layout
 
-Original design. Three regions, no borrowed layout:
+Five regions, following the single-window Ansys Fluent (DEC-21). The grammar is
+borrowed deliberately; none of Ansys's artwork, product names or colour is
+(§13.3).
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│  BuildFOAM                                            ─  □  ×     │
-├──────────┬─────────────────────────────────────────────────────┤
-│          │                                                     │
-│  ⌂ Hub   │                                                     │
-│  ▤ Cases │              Main panel (stacked views)             │
-│  ⚙ Setup │                                                     │
-│  ▶ Run   │                                                     │
-│  ◈ Post  │                                                     │
-│  ⧉ Library│                                                    │
-│  ? Guide │                                                     │
-│          │                                                     │
-├──────────┴─────────────────────────────────────────────────────┤
-│ ● OpenFOAM v2606 · Runtime ready · pitzDaily · idle            │
-└────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│ [File▾] Domain │ Physics │ Solution │ Results │ View              Guide     │
+│  ✓     ▦        ⤓       ◐         ⊞           ▭          ⬢                 │
+│ Check Display  Import Describe  Local Sizing Boundaries Volume Mesh        │
+│  Mesh          Geometry          Sizing      Zones      Generate           │
+├──────────────────┬─────────────────────────────────────────────────────────┤
+│ Outline View     │ Start │ Mesh │ Scaled Residuals │ Boundary Conditions │… │
+│  ▾ Workflow      │                                                         │
+│    ✓ Import Geo… │                                                         │
+│    ○ Describe Ge…│              Graphics window (documents)                │
+│    ⚡ Add Local S…│                                                         │
+│  ▾ Setup         │                                                         │
+│    ○ General     │                                                         │
+│  ▾ Solution      ├─────────────────────────────────────────────────────────┤
+│  ▾ Results       │ Console                                            ▾    │
+├──────────────────┤ ┌Console─┬Messages─┐                                    │
+│ General          │ │ solver transcript, search, jump-to-error              │
+│ The solver, and… │ │                                                       │
+│ Parameter Value  │ │                                                       │
+├──────────────────┴─┴───────────────────────────────────────────────────────┤
+│ ● Runtime ready · OpenFOAM v2512 · pitzDaily · idle              ☀ Light    │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- Left **nav rail**, icon + label, collapsible to icons only.
-- **Main panel** is a stack; each nav item maps to one view.
-- **Status footer** is always visible and always truthful (FR-A2). Runtime status is a coloured dot: green ready, amber degraded, red missing/broken — clicking it jumps to Setup.
+- **Ribbon.** Tabs of grouped, captioned, icon-over-label buttons: *Domain,
+  Physics, Solution, Results, View*, with *File* as a menu at the left of the
+  tab strip and *Guide* at the right. Declared as data
+  (`ui/ribbon.py`), so the buttons, their shortcuts and their tooltips cannot
+  fall out of step. Every action either selects an outline node or has a
+  handler; there is no third kind (asserted in `test_shell.py`).
+- **Outline View.** The structure of the case in the order it is set up, with a
+  filter box and a state glyph per node. This is the navigation; the ribbon is a
+  second route to the same nodes, never a second implementation.
+- **Task Page.** Under the outline, showing the form for the selected node. Its
+  header names that node whatever page it opens, so the column can never carry
+  the previous node's title.
+- **Graphics window.** The centre, a stack of document tabs — *Geometry*,
+  *Mesh*, *Scaled Residuals*, *Boundary Conditions*, *Case Files*, *Check Case*,
+  *Turbulence and y+*, *Library*, *Guide*. *Geometry* is the imported surface;
+  *Mesh* is what the meshing utilities then produced (DEC-23). They are separate
+  documents because they are separate things, and one tab showing whichever
+  existed would put a mesh under the geometry panel's face-naming controls. **Never replaced by a form**: anything too wide for
+  the task page becomes a document here rather than a modal in front of it, so
+  the outline stays reachable while it is open.
+- **Console.** A collapsible bottom dock with two tabs: *Console*, the
+  transcript every utility and solver writes to, and *Messages*, validation's
+  findings. **Read-only — there is no command line.** §1.1 promises a workflow
+  that never opens a terminal, and a console that accepted commands would be
+  one; a power user has the Text tab and the file system (D4).
+- **Status footer** is always visible and always truthful (FR-A2). Runtime
+  status is a coloured dot with a distinct glyph shape and a text label: green
+  ready, amber degraded, red missing/broken — clicking it jumps to Setup.
 
-### 7.2 Hub view
+Keyboard: every ribbon action is reachable by tab-and-arrow, and the ones worth
+learning carry a shortcut named in their own tooltip (NFR-A1). Ctrl+B hides the
+outline, Ctrl+J folds the console, Ctrl+F focuses the outline filter.
 
-Recent cases (name, solver, last run, status) as the primary content — because a returning user's first action is almost always "continue what I was doing". Secondary row of large actions: **New Case**, **Open Case**, **Library**, **Guide**, **Case Folder**. A runtime banner appears only when the runtime is not ready.
+### 7.2 Start document and the Outline View
+
+The **Start** document is the graphics window's first tab: recent cases (name,
+solver, last run, status) as the primary content — because a returning user's
+first action is almost always "continue what I was doing" — then a secondary row
+of large actions: **New Case**, **Open Case**, **Library**, **Guide**, **Case
+Folder**, **Settings**. A runtime banner appears only when the runtime is not
+ready. The same recent list fills *File → Recent Cases*, from one setter, so the
+two cannot disagree.
+
+The **Outline View** is the ordered tree of what a case consists of. Its
+vocabulary is Fluent's wherever OpenFOAM has the same thing, because P3 arrives
+knowing those words and P1 will meet them in every textbook; the OpenFOAM file
+each node edits is named in the task page underneath, so the user learns the
+mapping instead of having to know it first (D4).
+
+| Group | Nodes | Reads |
+|---|---|---|
+| **Workflow** | Import Geometry · Describe Geometry · Add Local Sizing · Update Boundaries · Generate the Volume Mesh | `constant/triSurface`, `system/blockMeshDict`, `constant/polyMesh/boundary` |
+| **Setup** | General · Models · Materials · Boundary Conditions · Reference Values | `system/controlDict`, the turbulence and transport dictionaries, `0/` |
+| **Solution** | Methods · Controls · Monitors · Initialization · Calculation Activities · Check Case · Run Calculation | `system/fvSchemes`, `system/fvSolution`, `system/controlDict` |
+| **Results** | Graphics · Plots · Reports | time directories, `postProcessing/` |
+| **Files** | Case Files | every dictionary, as it is on disk |
+
+Five rules the tree keeps:
+
+1. **Done means evidence on disk**, never that a page was visited. A node is
+   ticked because a file exists, not because an editor was opened and closed.
+   *Evidence* is files, not directories: an empty `constant/polyMesh` is not a
+   mesh.
+2. **Every state is carried in words as well as appearance** (NFR-A2). "locked"
+   and "not yet" mean different things and need different remedies.
+3. **A blocked node stays visible and says why** (§7.9 rule 3). Hiding what is
+   not yet reachable would conceal what the procedure is.
+4. **A node with nothing behind it is not drawn.** *Monitors* on a case whose
+   `controlDict` has no `functions` entry would be a heading over an empty
+   table, which is a promise the application makes and does not keep. A node
+   whose file is merely *absent* stays: the group names the file it wants, and
+   that is content.
+
+5. **Done is revocable** (DEC-22). A node whose output was computed from inputs
+   that have since changed is marked **↻ out of date**, in amber, with the word
+   on the row and the *file that caused it* in its tooltip. Staleness propagates
+   downstream — editing `blockMeshDict` marks the mesh *and* the run — and a
+   stale node counts as outstanding again, so progress falls and "what next?"
+   points back at it. Two artefacts can be stale, the mesh and the results;
+   *Check Case* never can, because its verdict is recomputed on every refresh
+   rather than stored.
+
+   The inputs are asymmetric on purpose. A mesh is stale only when something it
+   is actually built from changed — the meshing dictionaries and
+   `constant/triSurface` — so changing the end time does not mark it. A result
+   is stale when *anything* in the case definition changed, the mesh included,
+   because there is no entry a solver reads whose change leaves the answer
+   untouched.
+
+**Phases.** Until `constant/polyMesh` exists there is nothing to run. The
+Workflow group locks once a mesh exists — Fluent's meshing/solution mode switch
+— and *Switch to Meshing* brings it back in one click. Locked, never hidden.
 
 ### 7.3 Setup wizard (first launch)
 
@@ -588,23 +682,87 @@ Recent cases (name, solver, last run, status) as the primary content — because
 
 Step 8 is not decoration. It converts "the installer said OK" into "this machine can actually run CFD", which is the only claim the user cares about, and it moves failures from the middle of a lab session to the setup screen.
 
-### 7.4 Preprocessor view
+### 7.4 Editing a case
 
-Left: case file tree (real tree, showing real filenames). Centre: tabbed editors — a **Form** tab and a **Text** tab for the selected dictionary, always both. Right: a live **Validation** panel listing findings with severity, each clickable to the offending line.
+The editors are built and wired as one unit (`ui/views/case_editors.py`) and
+*placed* by the shell, which is what lets a narrow form and a wide table each
+get the room they need instead of sharing a tab strip.
 
-The **Boundary Conditions** tab is a matrix: rows = patches from `constant/polyMesh/boundary` (with patch type), columns = fields in `0/`. Each cell shows the BC type; empty cells are errors. Bulk actions ("apply `noSlip` to all `wall` patches for `U`") are provided because that is what the work actually is.
+| Editor | Where |
+|---|---|
+| Settings table — Parameter / Value / Unit, naming the file each group came from | Task page |
+| Geometry: surfaces, import, face naming | Task page |
+| Sizing: flow region, refinement, background cells | Task page |
+| Meshing utilities | Task page |
+| Initial conditions | Task page |
+| Patch list and types | Task page |
+| Boundary-condition matrix | Graphics window |
+| File tree with the **Form** and **Text** tabs, always both (DEC-07) | Graphics window |
+| Validation findings | Console → Messages |
 
-### 7.5 Run view
+The **Boundary Conditions** document is a matrix: rows = patches from
+`constant/polyMesh/boundary` (with patch type), columns = fields in `0/`. Each
+cell shows the BC type; empty cells are errors. Bulk actions ("apply `noSlip` to
+all `wall` patches for `U`") are provided because that is what the work actually
+is.
 
-Top: the `RunPlan` as a horizontal stage strip with per-stage state. Left: log pane with filter and error jump. Right: monitor plots, tabbed by function object, with series toggles and log-scale. Bottom: the three-level stop control, with **Stop & Write** as the default button and the destructive options behind a dropdown.
+**One file can serve several nodes.** Fluent splits `controlDict`'s concerns
+across *General* (the solver and the time span), *Monitors* (the function
+objects) and *Calculation Activities* (the write settings); the mapping in
+`services/properties.py` carries the top-level keys each node owns, because
+showing the whole file under each would make three nodes look identical and
+teach the user that the outline is decoration. An entry no node claims is still
+in the file, still editable in the Text tab, and still byte-identical after a
+save (FR-P7).
 
-### 7.6 Post view
+Findings appear in **one place**, the Messages tab, each clickable to the
+offending line. Every save goes through the service layer and re-validates; a
+panel that could drift from the files beside it would be worse than no panel,
+because it would be believed.
 
-ParaView status and launch; case type selector (v1.1); post-utility runner; and (v1.1) **Generate run report**.
+### 7.5 Running
 
-### 7.7 V&V view
+*Solution → Run Calculation*. The task page carries the `RunPlan` as a stacked
+stage strip with per-stage state (FR-S1: the plan is shown before it runs), the
+status sentence, and the three-level stop control with **Stop & Write** as the
+default button and the destructive options behind its dropdown. The transcript
+streams into the console dock; residuals plot into the *Scaled Residuals*
+document, which fills while the mesh document stays one tab away.
 
-A dedicated view, because V&V is a workflow rather than a dialog. Three tabs mirroring §6.9:
+**Two verbs, as Ansys has two** (DEC-22). *Calculate* (Ctrl+R) runs the whole
+plan. **Update** (F5) runs only what is out of date, meshing first if the mesh
+needs it — Workbench's *Update Project*. It is built by taking the ordinary plan
+and **skipping** the current stages rather than assembling a shorter one, so the
+stage strip still shows the whole shape of the run with the skipped parts
+marked: "blockMesh — skipped" says the mesh is current, where its absence would
+say nothing. Update is disabled, with "Everything is up to date." as its reason,
+exactly when there is nothing to do — which is the answer to "is my result still
+valid?", the question the button exists to settle.
+
+A run raises the console rather than waiting to be found, and the ribbon's
+*Stop & Write* is enabled only while there is something to stop.
+
+### 7.6 Results
+
+**The Mesh document** (DEC-23) draws the generated mesh's boundary faces,
+coloured by patch, from `constant/polyMesh`. Clicking a face selects that patch
+in the patch list — "which patch is that?" is the question the boundary-condition
+matrix cannot answer, because a row called `frontAndBack` says nothing about
+where on the model it is. It is a **preview, not a viewer**: boundary faces only,
+no fields, no results, no colour maps (NG1, NG3). Above the size cap it declines
+with "too large to preview here" and points at ParaView, because a preview that
+locked the window for a minute would be worse than one that says no. Large
+meshes are thinned *within each patch*, so no patch can be thinned away and
+appear in the matrix but nowhere on the model.
+
+*Results → Graphics / Plots / Reports*. The task page carries ParaView status and
+launch, the case type selector (v1.1), the post-utility runner and (v1.1)
+**Generate run report**; utilities stream into the console dock. The documents
+raised are the mesh, the residual plot and the V&V page respectively.
+
+### 7.7 Turbulence and y+
+
+A document of its own, because V&V is a workflow rather than a dialog. Three tabs mirroring §6.9:
 
 - **Turbulence** *(v1.0)* — the questionnaire on the left, the ranked shortlist with trade-offs in the centre, and a live panel on the right showing the coupled consequences: chosen wall treatment, target y⁺, required first-cell height, resulting boundary-layer cell count, and the derived inlet `k`/`ε`/`ω`. Every number shows its formula on hover. After a run, the y⁺ audit appears here as a per-patch table with pass/warn/fail against the target band.
 - **Mesh study** *(v1.1)* — family generator at the top (base case, refinement ratio, number of levels, generation strategy), the batch run status in the middle, and the GCI table below with the convergence-class banner above it. The banner is the loudest element on the screen when the class is oscillatory or divergent, because that is the case where the number underneath must not be trusted.
@@ -612,9 +770,13 @@ A dedicated view, because V&V is a workflow rather than a dialog. Three tabs mir
 
 The three tabs share a **provenance strip** naming the case, mesh family, OpenFOAM version and turbulence configuration the displayed numbers came from — because the most common way a V&V table becomes wrong is that it outlives the case it describes.
 
-### 7.8 Library and Guide views
+### 7.8 Library and Guide
 
-Library: category sidebar, card grid, per-item detail with compatibility badge, size, licence and publisher. Guide: TOC sidebar, content pane, search box; renders the same Markdown pipeline as course-pack worksheets.
+Both are documents in the graphics window, reached from *File → Library* and the
+*Guide* button at the right of the ribbon (F1). Library: category sidebar, card
+grid, per-item detail with compatibility badge, size, licence and publisher.
+Guide: TOC sidebar, content pane, search box; renders the same Markdown pipeline
+as course-pack worksheets.
 
 ### 7.9 Interaction principles
 
@@ -931,6 +1093,7 @@ An automated licence report (from the SBOM) ships with each release, and a **Thi
 - The mark carries ® on first prominent use, and the non-endorsement notice appears in: the setup wizard, the About dialog, the README, and the release page.
 - Do not use OpenCFD or ESI logos, or a visual identity that suggests an official product.
 - Do not imitate scFLOW's trade dress. The launcher-hub *concept* is unprotectable; a close visual copy plus the borrowed word "kicker" would not be.
+- The same applies to Ansys (DEC-21). The interaction *patterns* the shell adopts — a ribbon, an outline tree over a details pane, a persistent tabbed graphics window, a console dock, ✓/○ node status — are industry convention and predate Ansys; the outline's vocabulary is the vocabulary of the field, which is why it is used. **Not** adopted, and not to be: Ansys or Fluent icons, artwork, colour, logos, product names, or any wording that suggests an association. The application's own palette, glyph icons and error codes are used throughout, and no screen may name an Ansys product except to say what BuildFOAM is *not*.
 
 ### 13.4 Institutional matters
 
@@ -1057,7 +1220,7 @@ Dropping an OpenFOAM version requires one release of advance notice in the chang
 
 Architecture-decision records for every question left open in v0.1, plus decisions taken during this revision.
 
-**Coverage of v0.1's open questions:** Q1→DEC-01 · Q2→DEC-02 · Q3→DEC-03 · Q4→DEC-04 · Q5→DEC-16 · Q6→DEC-06 · Q7→DEC-07 · Q8→DEC-08 · Q9→DEC-09 · Q10→DEC-10. DEC-05 and DEC-11…DEC-15 are new decisions arising from this revision. **No question is left open.**
+**Coverage of v0.1's open questions:** Q1→DEC-01 · Q2→DEC-02 · Q3→DEC-03 · Q4→DEC-04 · Q5→DEC-16 · Q6→DEC-06 · Q7→DEC-07 · Q8→DEC-08 · Q9→DEC-09 · Q10→DEC-10. DEC-05, DEC-11…DEC-15 and DEC-21…DEC-23 are new decisions arising from this revision. **No question is left open.**
 
 | ID | Decision | Alternatives rejected | Rationale | Reversal cost |
 |---|---|---|---|---|
@@ -1080,6 +1243,9 @@ Architecture-decision records for every question left open in v0.1, plus decisio
 | **DEC-18** | **V&V module split across releases**: the turbulence advisor ships in v1.0 (it is case setup, and cheap); the GCI mesh study and experimental validation ship in v1.1. **Open question flagged for the owner:** whether to invert this and promote the GCI module (M11, 4 wk) into v1.0, deferring the content library or the second platform instead. | All three in v1.0; all three in v2.0; V&V as an optional plugin | The advisor prevents errors *before* a run and costs 3 weeks, so it earns its v1.0 place. GCI and validation are post-processing of completed runs, so they compose cleanly onto a shipped v1.0 without rework — the `RunPlan` batch machinery they need already exists from M5. Against that: §1.4 shows V&V is the *only* capability with no open-source competitor, which argues for leading with it. | Low — the modules are additive by construction |
 | **DEC-19** | Implement the **Celik et al. (2008) JFE procedure** specifically, with the 1.25 three-mesh safety factor, rather than a simplified two-mesh Richardson extrapolation or a bespoke formulation. | Plain Richardson extrapolation; Roache's original GCI; a two-mesh estimate with assumed p | It is the procedure journal reviewers in this field expect, it is published in full with worked examples that double as test fixtures (§12.6), and it handles non-uniform refinement ratios via the q(p) term, which real mesh families need. A two-mesh estimate with assumed p is supported only as an explicitly-labelled fallback carrying the 3.0 safety factor. | Low |
 | **DEC-20** | **No pass/fail verdicts on V&V output** (FR-VVM9, FR-VVE8). Report the number, its convergence class, its assumptions and its interpretation; the adequacy judgement stays with the engineer. | A green/red "validated" badge, which users will ask for | A GCI or a comparison error is only meaningful against an application-specific tolerance the tool cannot know. A boolean badge would be the most-used and least-defensible feature in the product, and in a teaching context it would train exactly the wrong instinct. | **High** — it is a product-philosophy commitment, not a UI detail |
+| **DEC-21** | **The shell follows the single-window Ansys Fluent**: ribbon, Outline View over a Task Page, a persistent tabbed graphics window, a collapsible console dock, and the status footer. Outline vocabulary is Fluent's where OpenFOAM has the same thing. | The original three-region design (nav rail + stacked views + footer); the scFLOW-derived ordered procedure panel that replaced it | Two reasons. **Recognition:** P3 arrives from commercial CFD and looks for *Solution → Run Calculation → Calculate*; a window that has it where they expect it needs no guide, and P1 will meet the same vocabulary in every textbook. **Shape fits the work:** a persistent graphics window that forms never cover is what lets the boundary matrix, the dictionary editors and the residual plot each have the width they need, which the previous single stack could not give them. Adopting the *patterns* — ribbon, outline tree, details pane, status glyphs — is adopting industry convention that predates Ansys; none of Ansys's icons, colour, product names or wording is copied (§13.3). | Medium — it is the whole shell layout, but every service, editor and guarantee below it is untouched, which is what made the change a re-plumbing rather than a rewrite |
+| **DEC-22** | **Outputs carry an out-of-date state** (↻), computed from modification times, propagated downstream, and cleared by a single **Update** verb that runs only the stale stages. | Leaving ✓ to mean "this happened once"; re-running everything on every press of Calculate; hashing the case instead of dating it | A tick on a result computed from a case the user has since edited is the most expensive thing this interface could get wrong — it is the number a student puts in a report — and it is a question the user cannot answer for themselves after an afternoon of edits. Workbench's ⚡ is the strongest idea in Ansys for exactly this reason, and one *Update* verb is what stops the user having to work out that editing `blockMeshDict` means meshing again *and then* solving again. **Times, not hashes**, because the check runs on every save (NFR-P7) and a hash costs a full read of the case — on a meshed case, all of `constant/polyMesh`. The weaker test's failure mode is a false *fresh* when bytes are rewritten identically, which under-reports rather than crying wolf; the reverse would train users to ignore the mark. Every verdict names the file that caused it, which Workbench does not. | Low — the state is derived, so it is one service and the marks it drives |
+| **DEC-23** | **The Mesh document draws `constant/polyMesh`'s boundary faces, coloured by patch and clickable to select one.** Boundary faces only; thinned within each patch; refused above a size cap with ParaView offered instead. | Leaving the Mesh tab showing the imported STL; rendering cells or fields; loading the mesh into an embedded ParaView/VTK | The imported surface answers "did I import the right thing?" and nothing about what the mesher then built, which is the very next question and previously required leaving the application. A volume mesh's *boundary* is a surface, so the projection already written for STL draws it unchanged — the whole feature is a reader. Clicking to identify a patch is the part that carries the value: patch names come from the mesher and mean nothing to a student until they can point at one. Thinning per patch rather than globally is what stops a thirty-face inlet vanishing beside a twenty-four-thousand-face wall. The size cap keeps NFR-P3: refusing in milliseconds is honest where a minute of parsing is not, and NG3 already says ParaView is what opens large results. | Low — one service and one widget; nothing else reads it |
 | **DEC-16** | ParaView acquisition order: **detect an existing install → download at first run → offline bundle for labs**. Never bundled in the default installer, and always skippable. | Bundle ParaView in the installer; require it before setup completes | Detection is free and much of the target audience already has ParaView; a ~1 GB installer materially depresses download conversion; labs are served by the offline bundle (§14.2). Making it skippable keeps setup unblocked when a download fails. | Low |
 
 ---

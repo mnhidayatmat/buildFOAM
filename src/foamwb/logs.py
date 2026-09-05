@@ -87,6 +87,13 @@ class Event(StrEnum):
     # it failed?" is the first question triage asks.
     UI_VIEW_SHOWN = "ui.view.shown"
 
+    UI_MESH_TRANSFORM = "ui.mesh.transform"
+    """What a press of ``transformPoints`` ended in — applied, cancelled, or
+    declined for moving nothing. Two of those three deliberately start no run, so
+    without this line "I pressed the button and nothing happened" is a report the
+    log cannot answer: an absent ``run.begin`` looks identical whether the user
+    cancelled, the panel declined, or the button never worked at all."""
+
     # Anything that surfaced a §9 code to the user
     ERROR_RAISED = "error.raised"
 

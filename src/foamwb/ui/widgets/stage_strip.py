@@ -35,23 +35,32 @@ STATE_GLYPHS: dict[StageState, str] = {
 
 
 class StageStrip(QFrame):
-    """One chip per stage, left to right in plan order."""
+    """One chip per stage, in plan order."""
 
     def __init__(
         self,
         palette: Palette,
         labels: dict[str, str],
         parent: QWidget | None = None,
+        *,
+        vertical: bool = False,
     ) -> None:
+        """``vertical`` stacks the chips instead of laying them across.
+
+        In the task page the strip has a 340-pixel column rather than the width
+        of the window, and five chips across that elide to "blockMes…" — a plan
+        the user cannot read is not the plan being shown that FR-S1 asks for.
+        Stacked, each stage keeps its whole name and its state word.
+        """
         super().__init__(parent)
         self.setObjectName("stageStrip")
         self._palette = palette
         self._labels = labels
         self._chips: dict[str, _StageChip] = {}
 
-        self._layout = QHBoxLayout(self)
+        self._layout = QVBoxLayout(self) if vertical else QHBoxLayout(self)
         self._layout.setContentsMargins(12, 8, 12, 8)
-        self._layout.setSpacing(8)
+        self._layout.setSpacing(8 if not vertical else 4)
 
         self._empty = QLabel(labels["no_plan"])
         self._empty.setProperty("role", "muted")

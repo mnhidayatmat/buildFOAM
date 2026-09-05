@@ -297,3 +297,61 @@ class TestRegionCoercion:
 
     def test_the_normalised_region_is_always_the_enum(self) -> None:
         assert MeshSettings(region="internal").normalised().region is FlowRegion.INTERNAL
+
+
+class TestNamedRegionsBecomePatches:
+    """The link between a name typed on the geometry page and a mesh patch.
+
+    Without these entries snappyHexMesh folds every solid into one patch named
+    after the file, and the names the user gave are carried into the case and
+    then ignored — which is worse than never offering to name them.
+    """
+
+    def _case_with(self, tmp_path, body: str):
+        case = tmp_path / "wing"
+        surfaces = case / "constant" / "triSurface"
+        surfaces.mkdir(parents=True)
+        (surfaces / "wing.stl").write_text(body)
+        return case
+
+    def _named(self) -> str:
+        triangle = (
+            "  facet normal 0 0 1\n    outer loop\n"
+            "      vertex 0 0 0\n      vertex 1 0 0\n      vertex 1 1 0\n"
+            "    endloop\n  endfacet\n"
+        )
+        return f"solid inlet\n{triangle}endsolid inlet\nsolid outlet\n{triangle}endsolid outlet\n"
+
+    def test_each_solid_gets_a_geometry_region(self, tmp_path) -> None:
+        case = self._case_with(tmp_path, self._named())
+        text = render_snappy(plan_mesh(case)).decode()
+        assert "regions" in text
+        assert "name inlet;" in text
+        assert "name outlet;" in text
+
+    def test_each_region_asks_for_a_patch_of_its_own(self, tmp_path) -> None:
+        """patchInfo is what makes snappyHexMesh emit a patch per region."""
+        case = self._case_with(tmp_path, self._named())
+        text = render_snappy(plan_mesh(case)).decode()
+        assert text.count("patchInfo { type patch; }") == 4
+
+    def test_a_surface_with_no_named_solids_gets_no_regions_block(self, tmp_path) -> None:
+        """An empty regions block promises regions this file does not have."""
+        triangle = (
+            "  facet normal 0 0 1\n    outer loop\n"
+            "      vertex 0 0 0\n      vertex 1 0 0\n      vertex 1 1 0\n"
+            "    endloop\n  endfacet\n"
+        )
+        case = self._case_with(tmp_path, f"solid \n{triangle}endsolid \n")
+        text = render_snappy(plan_mesh(case)).decode()
+        assert "regions\n" not in text.split("castellatedMeshControls")[0]
+
+    def test_the_dictionary_still_parses(self, tmp_path) -> None:
+        """NFR-C1 — every file we write is one OpenFOAM accepts."""
+        from foamwb.services.foamdict import Document
+
+        case = self._case_with(tmp_path, self._named())
+        written = render_snappy(plan_mesh(case))
+        # Parsed and rendered back unchanged: the regions block is inside the
+        # grammar rather than text the emitter happens to get away with.
+        assert Document.parse_bytes(written).render().encode() == written

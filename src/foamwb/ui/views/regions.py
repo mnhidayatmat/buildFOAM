@@ -290,13 +290,24 @@ class RegionsView(QWidget):
     def followers_text(self) -> str:
         return self._followers.text()
 
-    def choose(self, patch_name: str, new_type: str) -> None:
-        """For tests and scripted use: select a patch and a target type."""
+    def select(self, patch_name: str) -> bool:
+        """Put the cursor on one patch. Returns whether it was found.
+
+        What a click on the mesh resolves to (DEC-23). "Which patch is that?" is
+        the question the boundary matrix cannot answer — a row called
+        ``frontAndBack`` says nothing about where on the model it is — and
+        pointing at the face is the only explanation that always works.
+        """
         for index in range(self._table.topLevelItemCount()):
             item = self._table.topLevelItem(index)
             if item.data(0, _NAME_ROLE) == patch_name:
                 self._table.setCurrentItem(item)
-                break
+                return True
+        return False
+
+    def choose(self, patch_name: str, new_type: str) -> None:
+        """For tests and scripted use: select a patch and a target type."""
+        self.select(patch_name)
         position = self._type.findData(new_type)
         if position >= 0:
             self._type.setCurrentIndex(position)

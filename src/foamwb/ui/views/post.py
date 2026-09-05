@@ -56,13 +56,16 @@ class PostView(QWidget):
         parent: QWidget | None = None,
         *,
         paraview: ParaViewService | None = None,
+        log: LogPane | None = None,
     ) -> None:
+        """``log`` is the window's console when the window has one."""
         super().__init__(parent)
         self._palette = palette
         self._labels = labels
         self._case: Path | None = None
         self._session: RuntimeSession | None = None
         self._paraview = paraview or ParaViewService()
+        self._owns_log = log is None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 12, 16, 12)
@@ -82,8 +85,11 @@ class PostView(QWidget):
         self._status.setProperty("role", "muted")
         outer.addWidget(self._status)
 
-        self._log = LogPane(palette, labels)
-        outer.addWidget(self._log, stretch=1)
+        self._log = log or LogPane(palette, labels)
+        if self._owns_log:
+            outer.addWidget(self._log, stretch=1)
+        else:
+            outer.addStretch(1)
 
         self.refresh()
 
@@ -95,7 +101,10 @@ class PostView(QWidget):
         layout.setSpacing(4)
 
         title = QLabel(labels["paraview_missing"])
-        title.setProperty("role", "heading")
+        title.setProperty("role", "subheading")
+        # Wrapped: at heading size this sentence does not fit a task page, and
+        # an elided banner headline says "ParaView was not found on this ma…".
+        title.setWordWrap(True)
         layout.addWidget(title)
 
         detail = QLabel(labels["paraview_missing_detail"])
@@ -117,37 +126,59 @@ class PostView(QWidget):
         return banner
 
     def _build_actions(self, labels: dict[str, str]) -> QWidget:
+        """Two ways into ParaView, then the utility runner.
+
+        Stacked when the view is in the task page. Six controls across a
+        380-pixel column leaves "Open in ParaView" reading "n in Para\u2026",
+        which is a row of buttons nobody can identify.
+        """
         bar = QWidget()
-        row = QHBoxLayout(bar)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(8)
+        outer = QVBoxLayout(bar)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(6)
+        stacked = not self._owns_log
 
         self._open_button = QPushButton(labels["open_in_paraview"])
         self._open_button.clicked.connect(lambda: self._open(mesh_only=False))
-        row.addWidget(self._open_button)
 
         self._mesh_button = QPushButton(labels["inspect_mesh"])
         self._mesh_button.setToolTip(labels["inspect_mesh_tip"])
         self._mesh_button.clicked.connect(lambda: self._open(mesh_only=True))
-        row.addWidget(self._mesh_button)
-
-        row.addSpacing(16)
 
         self._functions = QComboBox()
         self._functions.setAccessibleName(labels["utilities"])
         for function in FUNCTIONS:
             self._functions.addItem(function.label, function.key)
         self._functions.currentIndexChanged.connect(self._on_function_changed)
-        row.addWidget(self._functions, stretch=1)
 
         self._argument = QLineEdit()
         self._argument.setPlaceholderText(labels["utility_argument"])
         self._argument.hide()
-        row.addWidget(self._argument)
 
         self._run_button = QPushButton(labels["run_utility"])
         self._run_button.clicked.connect(self._run_utility)
+
+        if stacked:
+            for widget in (
+                self._open_button,
+                self._mesh_button,
+                self._functions,
+                self._argument,
+                self._run_button,
+            ):
+                outer.addWidget(widget)
+            return bar
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+        row.addWidget(self._open_button)
+        row.addWidget(self._mesh_button)
+        row.addSpacing(16)
+        row.addWidget(self._functions, stretch=1)
+        row.addWidget(self._argument)
         row.addWidget(self._run_button)
+        outer.addLayout(row)
         return bar
 
     # -- context -----------------------------------------------------------
@@ -246,7 +277,8 @@ class PostView(QWidget):
 
     def set_palette(self, palette: Palette) -> None:
         self._palette = palette
-        self._log.set_palette(palette)
+        if self._owns_log:
+            self._log.set_palette(palette)
         self._missing.setStyleSheet(
             f"#paraviewMissing {{ background: {palette.surface_alt};"
             f" border: 1px solid {palette.degraded}; border-radius: 6px; }}"

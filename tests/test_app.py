@@ -43,9 +43,9 @@ def built(qapp):
 
 
 class TestBuildApplication:
-    def test_produces_a_shell_on_the_hub(self, built) -> None:
+    def test_produces_a_shell_on_the_start_document(self, built) -> None:
         _application, shell = built
-        assert shell.current_view == "hub"
+        assert shell.current_document == "start"
 
     def test_reuses_an_existing_qapplication(self, built) -> None:
         # Constructing a second QApplication aborts the process, so this is the

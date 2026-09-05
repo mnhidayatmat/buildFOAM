@@ -230,30 +230,177 @@ QLabel[role="muted"] {{
     color: {palette.text_muted};
 }}
 
-/* -- nav rail ------------------------------------------------------------ */
+/* -- ribbon --------------------------------------------------------------- */
 
-#navRail {{
+/* The band across the top of the window. Raised against the page below it, so
+   the eye reads "tools up here, work down there" before it reads a single
+   label — which is the whole reason a ribbon beats a menu bar for someone who
+   does not yet know what the application can do. */
+#ribbon {{
     background-color: {palette.surface};
-    border-right: 1px solid {palette.border};
+    border-bottom: 1px solid {palette.border};
 }}
 
-#navRail QToolButton {{
-    background-color: transparent;
+#ribbonTabs::pane {{
     border: none;
+    border-top: 1px solid {palette.border};
+}}
+
+#ribbonPage,
+#ribbonGroup {{
+    background-color: {palette.surface};
+}}
+
+/* Icon over label. A minimum width so a one-word button is still a target
+   rather than a sliver, and no maximum: capping it truncated "Volume Mesh" to
+   "Volu…Mesh", and a ribbon whose labels cannot be read is a row of icons with
+   a legend nobody can use. */
+#ribbonButton {{
+    background-color: transparent;
+    border: 1px solid transparent;
     border-radius: 6px;
-    padding: 8px 10px;
-    text-align: left;
+    padding: 4px 8px;
+    min-width: 56px;
     color: {palette.text};
 }}
 
-#navRail QToolButton:hover {{
+#ribbonButton:hover {{
     background-color: {palette.surface_alt};
+    border-color: {palette.border};
 }}
 
-#navRail QToolButton:checked {{
+#ribbonButton:pressed {{
     background-color: {palette.accent};
     color: {palette.on_accent};
+}}
+
+/* A disabled ribbon button recedes rather than vanishing: it still says what
+   the application can do, which is half of what the ribbon is for. Its tooltip
+   carries the reason (§7.9 rule 3). */
+#ribbonButton:disabled {{
+    color: {palette.text_muted};
+    background-color: transparent;
+    border-color: transparent;
+}}
+
+QLabel[role="ribbonCaption"] {{
+    color: {palette.text_muted};
+    font-size: 11px;
+}}
+
+#ribbonSeparator {{
+    background-color: {palette.border};
+    margin: 4px 2px 14px 2px;
+}}
+
+/* File is the accented control at the left of the tab strip, as it is in every
+   ribbon: it is the one entry that is a menu rather than a tab, and looking
+   different is what says so. */
+#ribbonFile {{
+    background-color: {palette.accent};
+    color: {palette.on_accent};
+    border: none;
+    border-radius: 4px;
+    padding: 5px 14px;
+    margin: 2px 6px 0px 6px;
     font-weight: 600;
+}}
+
+#ribbonFile:hover {{
+    background-color: {palette.focus};
+}}
+
+#ribbonHelp {{
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 5px 10px;
+    margin: 2px 6px 0px 0px;
+    color: {palette.text_muted};
+}}
+
+#ribbonHelp:hover {{
+    background-color: {palette.surface_alt};
+    color: {palette.text};
+}}
+
+/* -- outline, task page and console --------------------------------------- */
+
+#outline,
+#outlineHeader,
+#taskPage,
+#taskPageHeader,
+#consoleHeader {{
+    background-color: {palette.surface};
+}}
+
+#outline {{
+    border-right: 1px solid {palette.border};
+}}
+
+/* The tree fills its panel rather than sitting in a rounded box inside it: it
+   *is* the panel, and a border here would draw a second frame a pixel inside
+   the one the panel already has. */
+#outlineTree {{
+    background-color: {palette.surface};
+    border: none;
+    border-radius: 0px;
+}}
+
+#outlineTree::item {{
+    padding: 4px 2px;
+}}
+
+#outline QLineEdit {{
+    margin: 0px 8px 6px 8px;
+}}
+
+#taskPage {{
+    border-right: 1px solid {palette.border};
+    border-top: 1px solid {palette.border};
+}}
+
+#taskPageHeader {{
+    border-bottom: 1px solid {palette.border};
+}}
+
+QLabel[role="panelTitle"] {{
+    font-weight: 600;
+}}
+
+#consoleDock {{
+    background-color: {palette.bg};
+    border-top: 1px solid {palette.border};
+}}
+
+#consoleHeader {{
+    border-bottom: 1px solid {palette.border};
+}}
+
+#consoleToggle {{
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 2px 8px;
+    color: {palette.text_muted};
+}}
+
+#consoleToggle:hover {{
+    background-color: {palette.surface_alt};
+    color: {palette.text};
+}}
+
+#consoleTabs::pane,
+#graphicsTabs::pane {{
+    border: none;
+    border-top: 1px solid {palette.border};
+}}
+
+/* The graphics window is the page, so it keeps the window background while
+   every panel around it is raised. That contrast is what makes the centre read
+   as the thing being worked on. */
+#graphicsWindow {{
+    background-color: {palette.bg};
 }}
 
 /* -- footer -------------------------------------------------------------- */
@@ -292,7 +439,7 @@ QLabel[role="muted"] {{
     color: {palette.text};
 }}
 
-/* -- hub ----------------------------------------------------------------- */
+/* -- start document ------------------------------------------------------- */
 
 QPushButton[role="hubAction"] {{
     background-color: {palette.surface};
@@ -331,6 +478,30 @@ QPushButton {{
     padding: 7px 14px;
 }}
 
+/* Every tool button starts from the palette, so one that has not been given an
+   object name of its own is still themed. Qt draws an unstyled QToolButton in
+   the native style, whose defaults assume a light window — the single most
+   visible way a new control breaks the dark theme. */
+QToolButton {{
+    background-color: transparent;
+    color: {palette.text};
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 4px 8px;
+}}
+
+QToolButton:hover {{
+    background-color: {palette.surface_alt};
+}}
+
+QToolButton:disabled {{
+    color: {palette.text_muted};
+}}
+
+/* The menu indicator is left to the native style for the same reason the combo
+   box's is: a style sheet has no transform, so an arrow built from borders can
+   only be the corner it literally is. */
+
 QPushButton:hover {{
     background-color: {palette.surface_alt};
     border-color: {palette.accent};
@@ -354,6 +525,15 @@ QPushButton:default:disabled {{
     color: {palette.text_muted};
     border-color: {palette.border};
     font-weight: normal;
+}}
+
+/* A dialog's button row inherits the rules above rather than restyling itself:
+   the point is that Apply in a modal looks like every other button in the
+   application. Only a minimum width is set, so a two-word label and a one-word
+   label do not produce a lopsided row — and nothing here touches button order,
+   which is a platform convention rather than ours to pick (§12.4). */
+QDialogButtonBox QPushButton {{
+    min-width: 84px;
 }}
 
 /* -- text entry ----------------------------------------------------------- */

@@ -1,9 +1,19 @@
-"""The application shell: nav rail, view stack, status footer (§7.1).
+"""The application shell: ribbon, outline, task page, graphics window, console
+and status footer (§7.1, DEC-21).
 
-Three regions, as specified. The shell owns the wiring and nothing else — it
-holds no case, runs no command and parses no dictionary. Everything it displays
-arrives through a setter, which is what lets the whole window be driven from a
-test without a runtime, a case, or a display.
+Five regions, arranged as the single-window Fluent arranges them, because that
+arrangement answers three questions at once and the previous one answered two.
+Across the top, a **ribbon** of tabs — Domain, Physics, Solution, Results,
+View — is *what can I do?*. Down the left, the **Outline View** over its **Task
+Page** is *what does a case consist of, and where am I in it?*. The centre is
+the **graphics window**, a stack of document tabs that is never covered by a
+form, and under it the **console** carries everything the application did on the
+user's behalf. The **status footer** is unchanged, and still never lies.
+
+The shell owns the wiring and nothing else — it holds no case, runs no command
+and parses no dictionary. Everything it displays arrives through a setter, which
+is what lets the whole window be driven from a test without a runtime, a case,
+or a display.
 
 The one piece of *state* it does own is the appearance setting (NFR-A4), and for
 the same reason it owns the runtime status: the theme is global, it belongs to no
@@ -11,9 +21,12 @@ view, and one setter driving both the stored preference and every widget's
 palette is what keeps the window from disagreeing with its own footer about which
 theme is in force.
 
-The stack is built from :data:`~foamwb.ui.navrail.NAV_ITEMS`, the same list that
-builds the rail and the shortcuts, so a view cannot exist in one and be missing
-from another.
+**Outline nodes, ribbon actions and documents are three views of one list.** A
+node names the task page it opens and the document it raises
+(:data:`~foamwb.services.workflow.STEPS`); a ribbon action names the node it
+selects (:data:`_ACTION_STEPS`). A node with no page, or an action naming a node
+that does not exist, is caught by the tests rather than discovered by a user
+pressing a button that does nothing.
 """
 
 from __future__ import annotations
@@ -29,7 +42,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QSplitter,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -37,11 +49,15 @@ from PySide6.QtWidgets import (
 from foamwb.branding import APP_DISPLAY_NAME
 from foamwb.codes import ErrorCode
 from foamwb.logs import Event, get_logger, log_event
-from foamwb.services.case import CaseError, CaseService
+from foamwb.paths import desktop_dir
+from foamwb.services.case import Case, CaseError, CaseService
+from foamwb.services.freshness import Freshness, assess
+from foamwb.services.geometry import existing_surfaces
 from foamwb.services.newcase import NewCaseError, create_case
+from foamwb.services.polymesh import MeshSurface, Unavailable, read_mesh_surface
 from foamwb.services.properties import groups_for_step
 from foamwb.services.recents import RecentCase
-from foamwb.services.run import build_plan
+from foamwb.services.run import StopMode, build_plan, build_update_plan, plan_generates_mesh
 from foamwb.services.runtime import (
     RuntimeManager,
     RuntimeState,
@@ -50,27 +66,77 @@ from foamwb.services.runtime import (
 )
 from foamwb.services.settings import DEFAULT_THEME, SettingsService, ThemeChoice
 from foamwb.services.validation import validate_case
-from foamwb.services.workflow import StepState, WorkflowModel, step_by_id
+from foamwb.services.workflow import STEPS, StepKind, StepState, WorkflowModel, step_by_id
 from foamwb.ui import strings
 from foamwb.ui.appearance import resolve_palette
 from foamwb.ui.footer import StatusFooter
-from foamwb.ui.navrail import NAV_ITEMS
+from foamwb.ui.ribbon import Ribbon
 from foamwb.ui.theme import Palette, stylesheet
+from foamwb.ui.views.case_editors import CaseEditors
 from foamwb.ui.views.guide import GuideView
 from foamwb.ui.views.hub import HubView
-from foamwb.ui.views.initial import InitialConditionsView
 from foamwb.ui.views.library import LibraryView
 from foamwb.ui.views.placeholder import PlaceholderView
 from foamwb.ui.views.post import PostView
-from foamwb.ui.views.preprocessor import PreprocessorView
 from foamwb.ui.views.regions import RegionsView
 from foamwb.ui.views.run import RunView
 from foamwb.ui.views.vandv import VandVView
 from foamwb.ui.views.verify import VerifyView
+from foamwb.ui.widgets.console_dock import ConsoleDock
+from foamwb.ui.widgets.graphics_window import GraphicsWindow
+from foamwb.ui.widgets.log_pane import LogPane
+from foamwb.ui.widgets.messages_pane import MessagesPane
+from foamwb.ui.widgets.outline import Outline
 from foamwb.ui.widgets.property_panel import PropertyPanel
-from foamwb.ui.widgets.workflow_nav import WorkflowNav
+from foamwb.ui.widgets.residual_plot import ResidualPlot
+from foamwb.ui.widgets.surface_preview import SurfacePreview
+from foamwb.ui.widgets.task_page import TaskPage
 
 __all__ = ["Shell"]
+
+#: Which outline node each ribbon action selects. The ribbon is a second route
+#: to the same work, never a second implementation of it: pressing *Physics →
+#: Materials* does exactly what clicking *Materials* in the outline does, so the
+#: outline highlight and the task page cannot end up describing different nodes.
+#:
+#: Actions absent from this table do something that is not a node — open a
+#: dialog, switch a theme, fold a panel — and are handled in
+#: :meth:`_on_ribbon_action`.
+_ACTION_STEPS: dict[str, str] = {
+    "import_geometry": "workflow.import",
+    "describe_geometry": "workflow.describe",
+    "local_sizing": "workflow.sizing",
+    "update_boundaries": "workflow.boundaries",
+    "volume_mesh": "workflow.volume",
+    "general": "setup.general",
+    "models": "setup.models",
+    "materials": "setup.materials",
+    "boundary_conditions": "setup.boundary",
+    "reference_values": "setup.reference",
+    "methods": "solution.methods",
+    "controls": "solution.controls",
+    "monitors": "solution.monitors",
+    "initialization": "solution.initialization",
+    "activities": "solution.activities",
+    "check_case": "solution.check",
+    "calculate": "solution.run",
+    "graphics": "results.graphics",
+    "residuals": "results.plots",
+    "reports": "results.reports",
+    "case_files": "files.case",
+}
+
+#: Ribbon actions that need a case open, and the outline node whose blocked
+#: state explains why when they are not available.
+_NEEDS_CASE: frozenset[str] = frozenset(_ACTION_STEPS) | {
+    "update",
+    "check_mesh",
+    "display_mesh",
+    "paraview",
+    "export_csv",
+    "stop_write",
+    "case_folder",
+}
 
 
 def _is_time(name: str) -> bool:
@@ -105,30 +171,50 @@ class Shell(QMainWindow):
         """
         super().__init__(parent)
         self._strings = strings.shell_strings()
-        self._placeholders = strings.view_placeholders()
         self._palette = palette
         self._settings = settings or SettingsService()
         self._theme = ThemeChoice(theme)
 
         self.setWindowTitle(APP_DISPLAY_NAME)
-        self.setMinimumSize(960, 640)
+        # Wider than tall, and wide enough for the outline, a task page and a
+        # graphics window side by side. Below this the three columns start
+        # taking room from each other rather than from the window.
+        self.setMinimumSize(1120, 700)
 
-        # scFLOW's Navigation panel in place of the old destination rail: an
-        # ordered procedure the user reads down, rather than a set of places
-        # they must already know the order of (§7.2, D1).
-        workflow_labels = {**self._strings, **strings.workflow_strings()}
-        self._workflow = WorkflowNav(palette, workflow_labels)
-        self._properties = PropertyPanel(palette, workflow_labels)
-        self._stack = QStackedWidget()
-        self._footer = StatusFooter(palette)
+        # One catalogue for the whole window. The regions share vocabulary —
+        # the console's "Messages" tab and the outline's findings are the same
+        # word, the residual plot's axis labels belong to the Run page that
+        # feeds it — and merging once here is what stops the same sentence
+        # reaching a translator twice under two keys.
+        self._labels = {
+            **self._strings,
+            **strings.workflow_strings(),
+            **strings.ribbon_strings(),
+            **strings.preprocessor_strings(),
+            **strings.run_strings(),
+            **strings.console_strings(),
+            **strings.graphics_strings(),
+        }
 
         self._cases = CaseService()
         self._runtime: RuntimeStatus | None = None
         self._session = None
         self._case_path: Path | None = None
-        """The open case. Held here because the workflow list and the property
-        panel are both drawn from evidence on disk, and the shell is the only
-        thing that knows which case that is."""
+        self._freshness = Freshness()
+        """What the case has, and what of it is out of date (DEC-22). Re-read on
+        every refresh, because the user edits files between one and the next."""
+
+        self._mesh_shown: tuple[str, float] | None = None
+        """Which mesh the Mesh document is drawing, as case and write time.
+
+        The document is re-read only when this moves. Re-reading on every
+        refresh would be correct and would throw away the angle the user turned
+        the model to — on every save."""
+        """The open case. Held here because the outline and the task page are
+        both drawn from evidence on disk, and the shell is the only thing that
+        knows which case that is."""
+
+        self._current_step: str | None = None
 
         # How the user is asked for a folder, and how they are told something
         # went wrong. Injectable because a modal dialog blocks its thread until a
@@ -140,61 +226,7 @@ class Shell(QMainWindow):
         self._ask_text = self._ask_for_text
         self._reveal = self._open_in_file_manager
 
-        self._views: dict[str, QWidget] = {}
-        self._build_views()
-
-        central = QWidget()
-        body = QVBoxLayout(central)
-        body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(0)
-
-        upper = QWidget()
-        upper_layout = QVBoxLayout(upper)
-        upper_layout.setContentsMargins(0, 0, 0, 0)
-        upper_layout.addWidget(self._stack)
-
-        # Navigation above, properties below — scFLOW's left column. A splitter
-        # rather than fixed heights, because the property table for fvSolution is
-        # far longer than the one for controlDict and a fixed split would make
-        # one of them permanently cramped.
-        self._current_view: str | None = None
-        left = QSplitter(Qt.Orientation.Vertical)
-        left.addWidget(self._workflow)
-        left.addWidget(self._properties)
-        left.setStretchFactor(0, 3)
-        left.setStretchFactor(1, 2)
-        left.setChildrenCollapsible(False)
-        # Opening sizes, not just stretch factors: stretch decides how *extra*
-        # space is shared on resize, so without this the two panels start from
-        # their size hints and the procedure — the thing §7.2 asks the user to
-        # read down — opens already scrolled, above a property table that is
-        # empty until they pick a step from it.
-        # Sized so the whole procedure — including the Reference group at its
-        # foot — is on screen without scrolling at the window's own minimum
-        # height. A list that must be scrolled to discover its last section is a
-        # list whose shape the user never learns, which is the entire point of
-        # showing it this way.
-        left.setSizes([600, 160])
-        # Wide enough for the longest row the panel can produce — a step name
-        # plus its state word. Below this the tree elides, and "Material
-        # prope…" beside "Boundary con…" is a list of steps whose names the user
-        # cannot read, which is worse than a narrower main panel. Ctrl+B still
-        # hides the column outright when the space is genuinely needed.
-        left.setMinimumWidth(240)
-
-        row = QSplitter(Qt.Orientation.Horizontal)
-        self._left = left
-        row.addWidget(left)
-        row.addWidget(upper)
-        row.setStretchFactor(0, 0)
-        row.setStretchFactor(1, 1)
-        row.setSizes([300, 900])
-        row.setChildrenCollapsible(False)
-
-        body.addWidget(row, stretch=1)
-        body.addWidget(self._footer)
-        self.setCentralWidget(central)
-
+        self._build()
         self._connect()
         self._install_shortcuts()
 
@@ -205,165 +237,677 @@ class Shell(QMainWindow):
         )
         self.set_openfoam_version(None)
         self._footer.set_theme_choice(self._theme)
-        self.show_view("hub")
+        self._graphics.show_document("start")
+        self._task_page.show_page("start", title=self._labels["doc.start"])
+        self._refresh_ribbon()
 
     # -- construction ------------------------------------------------------
 
-    def _build_views(self) -> None:
-        self._hub = HubView(self._strings)
-        self._views["hub"] = self._hub
-        self._stack.addWidget(self._hub)
+    def _build(self) -> None:
+        palette, labels = self._palette, self._labels
 
-        self._run = RunView(self._palette, {**self._strings, **strings.run_strings()})
-        self._views["run"] = self._run
-        self._stack.addWidget(self._run)
+        self._ribbon = Ribbon(palette, labels)
+        self._outline = Outline(palette, labels)
+        self._task_page = TaskPage(labels)
+        self._graphics = GraphicsWindow(labels)
+        self._footer = StatusFooter(palette)
 
-        self._preprocessor = PreprocessorView(
-            self._palette, {**self._strings, **strings.preprocessor_strings()}
+        # One console and one residual plot in the window, written to by the
+        # run, the meshing utilities and the post utilities alike — because the
+        # user reads one stream of what the application did on their behalf.
+        self._console = LogPane(palette, labels)
+        self._messages = MessagesPane(palette, labels)
+        self._dock = ConsoleDock(labels, self._console, self._messages)
+        self._residuals = ResidualPlot(palette, labels)
+
+        self._build_documents()
+        self._build_task_pages()
+
+        left = QSplitter(Qt.Orientation.Vertical)
+        left.addWidget(self._outline)
+        left.addWidget(self._task_page)
+        left.setStretchFactor(0, 5)
+        left.setStretchFactor(1, 4)
+        left.setChildrenCollapsible(False)
+        # Wide enough for the longest row the outline can produce and for the
+        # settings table's three columns. Below this the tree elides, and
+        # "Calculation Activ…" beside "Initializat…" is a list of nodes whose
+        # names the user cannot read. Ctrl+B hides the column outright when the
+        # space is genuinely needed.
+        left.setMinimumWidth(340)
+        self._left = left
+
+        centre = QSplitter(Qt.Orientation.Vertical)
+        centre.addWidget(self._graphics)
+        centre.addWidget(self._dock)
+        centre.setStretchFactor(0, 5)
+        centre.setStretchFactor(1, 2)
+        centre.setChildrenCollapsible(False)
+        self._centre = centre
+
+        row = QSplitter(Qt.Orientation.Horizontal)
+        row.addWidget(left)
+        row.addWidget(centre)
+        row.setStretchFactor(0, 0)
+        row.setStretchFactor(1, 1)
+        row.setSizes([380, 1020])
+        row.setChildrenCollapsible(False)
+
+        central = QWidget()
+        body = QVBoxLayout(central)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+        body.addWidget(self._ribbon)
+        body.addWidget(row, stretch=1)
+        body.addWidget(self._footer)
+        self.setCentralWidget(central)
+
+    def _build_documents(self) -> None:
+        """The graphics window's tabs — everything too wide for a task page."""
+        palette, labels = self._palette, self._labels
+
+        self._hub = HubView(labels)
+        self._graphics.add_document("start", self._hub)
+
+        self._editors = CaseEditors(palette, labels, log=self._console)
+        self._graphics.add_document("geometry", self._editors.preview)
+
+        # The generated mesh, which is a different thing from the surface it was
+        # built around and so a different document (DEC-23). Its own widget
+        # rather than a second source for one: the geometry panel's naming
+        # controls act on whatever its preview is showing, and a mesh under them
+        # would mean naming faces of the wrong model.
+        self._mesh_preview = SurfacePreview(palette, labels)
+        self._mesh_preview.selection_changed.connect(self._on_mesh_face_picked)
+        self._graphics.add_document("mesh", self._mesh_preview)
+        self._graphics.add_document("residuals", self._residuals)
+        self._graphics.add_document("boundary", self._editors.matrix)
+        self._graphics.add_document("files", self._editors.files)
+
+        self._verify = VerifyView(palette, {**labels, **strings.verify_strings()})
+        self._graphics.add_document("verify", self._verify)
+
+        self._vandv = VandVView(palette, {**labels, **strings.vandv_strings()})
+        self._graphics.add_document("vv", self._vandv)
+
+        self._library = LibraryView(palette, {**labels, **strings.library_strings()})
+        self._graphics.add_document("library", self._library)
+
+        self._guide = GuideView(palette, {**labels, **strings.guide_strings()})
+        self._graphics.add_document("guide", self._guide)
+
+        title, detail = strings.view_placeholders()["setup"]
+        self._graphics.add_document("setup", PlaceholderView(title, detail))
+
+    def _build_task_pages(self) -> None:
+        """The column beside the outline — one form per node that has one."""
+        palette, labels = self._palette, self._labels
+
+        self._task_page.add_page("start", self._build_start_page())
+        self._task_page.add_page("settings", self._editors.properties)
+        self._task_page.add_page("geometry", self._editors.geometry)
+        self._task_page.add_page("describe", self._editors.sizing)
+        self._task_page.add_page("mesh", self._editors.mesh)
+        self._task_page.add_page("initial", self._editors.initial)
+        self._task_page.add_page("files", self._build_files_page())
+
+        self._regions = RegionsView(palette, {**labels, **strings.regions_strings()})
+        self._task_page.add_page("regions", self._regions)
+        self._mesh_patches: dict[int, str] = {}
+
+        self._task_page.add_page("check", self._build_check_page())
+
+        self._run = RunView(
+            palette,
+            labels,
+            log=self._console,
+            residuals=self._residuals,
         )
-        self._views["cases"] = self._preprocessor
-        self._stack.addWidget(self._preprocessor)
+        self._task_page.add_page("run", self._run)
 
-        self._vandv = VandVView(self._palette, {**self._strings, **strings.vandv_strings()})
-        self._views["vv"] = self._vandv
-        self._stack.addWidget(self._vandv)
+        self._post = PostView(palette, {**labels, **strings.post_strings()}, log=self._console)
+        self._task_page.add_page("post", self._post)
 
-        self._regions = RegionsView(self._palette, {**self._strings, **strings.regions_strings()})
-        self._views["regions"] = self._regions
-        self._stack.addWidget(self._regions)
+        self._task_page.add_page("reference", self._build_reference_page())
 
-        self._initial = InitialConditionsView(
-            self._palette, {**self._strings, **strings.initial_strings()}
-        )
-        self._views["initial"] = self._initial
-        self._stack.addWidget(self._initial)
+    def _build_start_page(self) -> QWidget:
+        """What the task page says with nothing open: how to get a case.
 
-        self._guide = GuideView(self._palette, {**self._strings, **strings.guide_strings()})
-        self._views["guide"] = self._guide
-        self._stack.addWidget(self._guide)
+        The start document beside it lists recent cases; this is the *task*, and
+        an empty column next to a start screen would read as a panel that had
+        failed to load.
+        """
+        page = QWidget()
+        column = QVBoxLayout(page)
+        column.setContentsMargins(12, 10, 12, 10)
+        column.setSpacing(8)
+        hint = PlaceholderView(*strings.view_placeholders()["setup"])
+        hint.setVisible(False)
+        self._start_hint = hint
+        from PySide6.QtWidgets import QLabel, QPushButton
 
-        self._verify = VerifyView(self._palette, {**self._strings, **strings.verify_strings()})
-        self._views["verify"] = self._verify
-        self._stack.addWidget(self._verify)
+        message = QLabel(self._labels["no_recent_cases"])
+        message.setWordWrap(True)
+        message.setProperty("role", "muted")
+        column.addWidget(message)
+        for key in ("new_case", "open_case", "library"):
+            button = QPushButton(self._labels[f"action.{key}"])
+            button.clicked.connect(lambda _checked=False, k=key: self._on_ribbon_action(k))
+            column.addWidget(button)
+        column.addStretch(1)
+        return page
 
-        self._post = PostView(self._palette, {**self._strings, **strings.post_strings()})
-        self._views["post"] = self._post
-        self._stack.addWidget(self._post)
+    def _build_files_page(self) -> QWidget:
+        """The task page for *Case Files*: the settings, beside the raw files.
 
-        self._library = LibraryView(self._palette, {**self._strings, **strings.library_strings()})
-        self._views["library"] = self._library
-        self._stack.addWidget(self._library)
+        The tree and the editors are the document; this column says what the
+        selected step owns, so a user editing ``controlDict`` by hand can see
+        the same values named in plain language beside it.
+        """
+        self._files_properties = PropertyPanel(self._palette, self._labels)
+        return self._files_properties
 
-        for item in NAV_ITEMS:
-            if item.key in self._views:
-                continue
-            title, detail = self._placeholders[item.key]
-            view = PlaceholderView(title, detail)
-            self._views[item.key] = view
-            self._stack.addWidget(view)
+    def _build_check_page(self) -> QWidget:
+        page = QWidget()
+        column = QVBoxLayout(page)
+        column.setContentsMargins(12, 10, 12, 10)
+        column.setSpacing(8)
+        from PySide6.QtWidgets import QPushButton
+
+        button = QPushButton(self._labels["action.check_case"])
+        button.setDefault(True)
+        button.clicked.connect(self._check_case)
+        column.addWidget(button)
+        column.addStretch(1)
+        self._check_button = button
+        return page
+
+    def _build_reference_page(self) -> QWidget:
+        """*Reference Values* opens the advisor, which is a document.
+
+        The task page carries the sentence that says so, rather than being
+        blank: a column that empties when a node is selected reads as a failure.
+        """
+        page = QWidget()
+        column = QVBoxLayout(page)
+        column.setContentsMargins(12, 10, 12, 10)
+        column.setSpacing(8)
+        from PySide6.QtWidgets import QLabel
+
+        message = QLabel(self._labels["hint.setup.reference"])
+        message.setWordWrap(True)
+        message.setProperty("role", "muted")
+        column.addWidget(message)
+        column.addStretch(1)
+        return page
 
     def _connect(self) -> None:
-        self._workflow.step_selected.connect(self._on_step_selected)
+        self._outline.step_selected.connect(self._on_step_selected)
+        self._outline.action_requested.connect(self._on_step_action)
+        self._outline.return_to_mesh.connect(self._on_return_to_mesh)
+
+        self._ribbon.action_triggered.connect(self._on_ribbon_action)
+        self._ribbon.recent_requested.connect(lambda path: self.open_case(Path(path)))
+
         # A patch type decides which boundary conditions are legal, so the
         # matrix has to be re-read rather than left showing the old rules.
         self._regions.patches_changed.connect(self._reload_case)
-        self._verify.file_requested.connect(lambda _p: self.show_view("cases"))
+        # Importing a surface is evidence the geometry node is done, so the row
+        # has to tick without waiting for the case to be reopened.
+        self._editors.case_changed.connect(self._on_case_changed)
+        self._editors.validated.connect(self._on_validated)
+        self._messages.finding_activated.connect(self._on_finding_activated)
+        self._verify.file_requested.connect(lambda path: self._editors.show_line(path, None, None))
         # FR-G2: a diagnosis carries a guide anchor, and following it must land
         # on the section rather than the top of a nine-section page.
         self._run.guide_requested.connect(self.show_guide)
-        self._workflow.action_requested.connect(self._on_step_action)
-        self._workflow.return_to_mesh.connect(self._on_return_to_mesh)
-        self._footer.setup_requested.connect(lambda: self.show_view("setup"))
+        self._footer.setup_requested.connect(lambda: self._graphics.show_document("setup"))
         self._footer.theme_requested.connect(self.set_theme)
-        self._hub.setup_requested.connect(lambda: self.show_view("setup"))
-        self._hub.action_triggered.connect(self._on_hub_action)
+        self._hub.setup_requested.connect(lambda: self._graphics.show_document("setup"))
+        self._hub.action_triggered.connect(self._on_ribbon_action)
         self._hub.case_opened.connect(self._on_case_opened)
-        self._post.setup_requested.connect(lambda: self.show_view("setup"))
+        self._post.setup_requested.connect(lambda: self._graphics.show_document("setup"))
         # An installed case is opened straight away: a library that leaves the
         # user to go and find what it just wrote has done four fifths of the job.
         self._library.case_installed.connect(self.open_case)
-        self._run.run_started.connect(
-            lambda: self.set_run_state(self._strings["run_state_running"])
-        )
+        self._run.run_started.connect(self._on_run_started)
         self._run.run_finished.connect(self._on_run_finished)
 
-    # -- workflow ----------------------------------------------------------
+    def _install_shortcuts(self) -> None:
+        """Shortcuts the ribbon does not carry.
+
+        Everything with a button gets its shortcut from the ribbon's own table,
+        so it is discoverable from the tooltip. These two have no button: the
+        outline's own filter and the escape from a modal-less window.
+        """
+        find = QShortcut(QKeySequence("Ctrl+F"), self)
+        find.activated.connect(self._outline._search.setFocus)
+
+    # -- the outline -------------------------------------------------------
 
     @Slot(str)
     def _on_step_selected(self, step_id: str) -> None:
-        """Show the view a step maps onto, and its settings beside it."""
+        """Show the task page a node owns, and raise its document."""
         step = step_by_id(step_id)
         if step is None:
             return
-        if step.view:
-            self.show_view(step.view)
-        self._properties.set_groups(groups_for_step(self._case_path, step_id))
+        self._current_step = step_id
+        self._outline.select(step_id)
+
+        groups = groups_for_step(self._case_path, step_id)
+        self._editors.set_property_groups(groups)
+        self._files_properties.set_groups(groups)
+
+        # The header is set from the node whatever page it names, so a node
+        # whose page is missing shows an empty column rather than the *previous*
+        # node's title over the previous node's form — which is a window lying
+        # about what the user selected.
+        self._task_page.show_page(
+            step.page,
+            title=self._labels[f"step.{step_id}"],
+            caption=self._labels.get(f"hint.{step_id}", ""),
+        )
+        if step.document:
+            self._graphics.show_document(step.document)
+        self._refresh_ribbon()
+        log_event(_log, Event.UI_VIEW_SHOWN, view=step_id)
 
     @Slot(str)
     def _on_step_action(self, step_id: str) -> None:
-        """Steps that run something rather than opening a page."""
-        if step_id in {"mesh.generate", "execute"}:
-            self.show_view("run")
+        """Nodes that run something rather than opening a page.
+
+        *Generate the Volume Mesh* is Fluent's task of the same name: it selects
+        its own page — which is where the meshing buttons are — rather than
+        running immediately, because a mesh is minutes of work and §7.9 rule 2
+        forbids starting it without saying so.
+        """
+        self._on_step_selected(step_id)
+        if step_id == "workflow.volume":
+            self._dock.show_console()
 
     def _on_return_to_mesh(self) -> None:
-        """scFLOW's *Return to Prepare Parts*.
+        """Fluent's *Switch to Meshing*.
 
         The lock is a statement about where the user is, not a restriction on
         what they may do — so getting back costs one click and nothing else.
         """
-        self._workflow.model.set_state("mesh.settings", StepState.AVAILABLE)
-        self._workflow.model.set_state("mesh.regions", StepState.AVAILABLE)
-        self._workflow.refresh()
-        self._workflow.select("mesh.settings")
-        self.show_view("cases")
+        for node in ("workflow.describe", "workflow.sizing", "workflow.boundaries"):
+            self._outline.model.set_state(node, StepState.AVAILABLE)
+        self._outline.refresh()
+        self._on_step_selected("workflow.sizing")
 
-    def refresh_workflow(self) -> None:
-        """Re-read the evidence the workflow list is drawn from."""
-        case = self._case_path
-        self._workflow.set_model(
-            WorkflowModel(
-                case=case,
-                checks_passed=self._checks_pass(case),
-                has_mesh=bool(case and (case / "constant" / "polyMesh").is_dir()),
-                has_results=bool(
-                    case
-                    and any(
-                        p.is_dir() and p.name not in {"0"} and _is_time(p.name)
-                        for p in case.iterdir()
-                    )
-                ),
-            )
+    # -- the ribbon --------------------------------------------------------
+
+    @Slot(str)
+    def _on_ribbon_action(self, key: str) -> None:
+        """Route a ribbon or start-page action.
+
+        Anything in :data:`_ACTION_STEPS` is the outline's, so the two routes
+        cannot diverge. The rest are the actions that are not nodes.
+        """
+        if (step_id := _ACTION_STEPS.get(key)) is not None:
+            step = step_by_id(step_id)
+            if step is not None and not self._outline.is_actionable(step_id):
+                return
+            if step is not None and step.kind is StepKind.ACTION:
+                self._on_step_action(step_id)
+            else:
+                self._on_step_selected(step_id)
+            return
+
+        handler = self._handlers().get(key)
+        if handler is not None:
+            handler()
+
+    def _handlers(self) -> dict:
+        """Ribbon actions that are not outline nodes.
+
+        A table rather than a chain of branches, so a test can assert that every
+        action the ribbon offers is either a node or in here — which is what
+        makes "no button does nothing" checkable rather than hopeful.
+        """
+        return {
+            "new_case": self.new_case_dialog,
+            "open_case": self.open_case_dialog,
+            "import_geometry_menu": lambda: self._on_ribbon_action("import_geometry"),
+            "case_folder": self.reveal_case_folder,
+            "library": lambda: self._graphics.show_document("library"),
+            "guide": lambda: self._graphics.show_document("guide"),
+            "settings": lambda: self._graphics.show_document("setup"),
+            "exit": self.close,
+            "check_mesh": self._check_mesh,
+            "display_mesh": lambda: self._graphics.show_document("mesh"),
+            "check_case": self._check_case,
+            "update": self._update_case,
+            "stop_write": lambda: self._run.stop(StopMode.WRITE),
+            "paraview": lambda: self._post._open(mesh_only=False),
+            "export_csv": self._run._export_csv,
+            "reset_view": self._editors.preview.clear_selection,
+            "toggle_outline": self.toggle_outline,
+            "toggle_task_page": self.toggle_task_page,
+            "toggle_console": lambda: self._dock.set_collapsed(not self._dock.collapsed),
+            "theme_light": lambda: self.set_theme(ThemeChoice.LIGHT),
+            "theme_dark": lambda: self.set_theme(ThemeChoice.DARK),
+            "theme_system": lambda: self.set_theme(ThemeChoice.SYSTEM),
+            # The Hub's own keys, which predate the ribbon and still arrive
+            # from the start document.
+            "case_files": lambda: self._on_step_selected("files.case"),
+        }
+
+    def _refresh_ribbon(self) -> None:
+        """Enable what can be done now, and say why when something cannot.
+
+        Driven from the outline's own model rather than from a second set of
+        conditions, so a button and the node it selects always agree about
+        whether the work is available (§7.9 rule 3).
+        """
+        has_case = self._case_path is not None
+        for key in self._ribbon.action_keys + self._ribbon.menu_keys:
+            if key not in _NEEDS_CASE:
+                continue
+            step_id = _ACTION_STEPS.get(key)
+            if step_id is not None:
+                enabled = self._outline.is_actionable(step_id)
+                reason = self._explain_blocked(step_id)
+            else:
+                enabled = has_case
+                reason = self._labels["blocked_no_case"]
+            self._ribbon.set_enabled(key, enabled, reason=reason)
+        self._ribbon.set_enabled("stop_write", self._run.can_stop, reason=self._labels["no_plan"])
+        # Disabled *because there is nothing out of date* is information, not an
+        # obstacle: it is the answer to "is my result still valid?", which is the
+        # question this button exists to settle.
+        self._ribbon.set_enabled(
+            "update",
+            has_case and self._session is not None and self._freshness.anything_to_do,
+            reason=(
+                self._labels["up_to_date"]
+                if has_case and self._session is not None
+                else self._labels["blocked_no_case"]
+            ),
         )
 
-    def _checks_pass(self, case: Path | None) -> bool:
-        """Whether validation finds nothing that would stop a run (FR-C3).
+    def _explain_blocked(self, step_id: str) -> str:
+        step = step_by_id(step_id)
+        if step is None:
+            return ""
+        if self._outline.model.awaiting_mesh(step):
+            return self._labels["blocked_no_mesh"]
+        if self._case_path is None:
+            return self._labels["blocked_no_case"]
+        return self._labels["locked_explains"]
 
-        Swallows its own failures deliberately. This decides a tick in a list; a
-        case whose dictionaries cannot be parsed has bigger problems, and they
-        are reported by the Check setup view itself rather than by an exception
-        thrown while drawing the navigation panel.
+    # -- actions that are not nodes ---------------------------------------
+
+    def _check_mesh(self) -> None:
+        """*Domain → Mesh → Check*: run checkMesh, with its output in the console."""
+        self._on_step_selected("workflow.volume")
+        self._dock.show_console()
+        from foamwb.services.mesh import UTILITIES
+
+        utility = next((u for u in UTILITIES if u.name == "checkMesh"), None)
+        if utility is not None:
+            self._editors.mesh.run_utility(utility)
+
+    def _update_case(self) -> None:
+        """*Solution → Update*: run whatever is out of date, in order (DEC-22).
+
+        Workbench's *Update Project*. The plan is rebuilt here rather than kept,
+        because the whole point is that it depends on what the user has edited
+        since — a cached one would be answering yesterday's question.
+
+        Nothing to do is said, not done. Launching a plan whose every stage is
+        skipped would put an empty stage strip and a "succeeded in 0.0s" in front
+        of a user who asked a question and got what looks like an answer.
+        """
+        if self._case_path is None or self._session is None:
+            return
+        case = self._open_for_reading(self._case_path)
+        if case is None:
+            return
+        self.refresh_workflow()
+        if not self._freshness.anything_to_do:
+            self._on_step_selected("solution.run")
+            self._run.say(self._strings["up_to_date"])
+            return
+
+        try:
+            plan = build_update_plan(case, self._freshness)
+        except ValueError as exc:
+            self._report(self._strings["cannot_plan_title"], str(exc))
+            return
+
+        self._on_step_selected("solution.run")
+        self._run.start(plan)
+
+    def _check_case(self) -> None:
+        """*Solution → Check Case*: validate, and show the findings."""
+        self._verify.run_check()
+        self._editors.refresh_validation()
+        self._dock.show_messages()
+        self.refresh_workflow()
+
+    # -- validation --------------------------------------------------------
+
+    @Slot(object)
+    def _on_validated(self, validation) -> None:
+        self._messages.set_findings(validation, has_case=self._case_path is not None)
+
+    def _on_finding_activated(self, finding) -> None:
+        """Open the offending file and, where known, the offending line (§7.4)."""
+        if finding is None or not finding.file.is_file():
+            return
+        self._on_step_selected("files.case")
+        self._editors.show_line(finding.file, finding.line, finding.column)
+
+    def _on_case_changed(self) -> None:
+        self.refresh_workflow()
+        self._refresh_ribbon()
+
+    # -- workflow state ----------------------------------------------------
+
+    def refresh_workflow(self) -> None:
+        """Re-read the evidence the outline is drawn from.
+
+        The case is opened once and handed to both readers below. Opening it
+        hashes every definition file — on a meshed case that is the whole
+        ``constant/polyMesh`` — and this runs on every save, so a second open
+        would put the cost of reading the mesh behind each keystroke's worth of
+        work the user does (NFR-P7).
+        """
+        path = self._case_path
+        case = self._open_for_reading(path)
+        # One walk of the case, not three. ``assess`` already has to find the
+        # mesh and the results to date them, so it answers "is there one?" as
+        # well — and two readers of the same directory are two chances to
+        # disagree about what is on it (NFR-P7).
+        self._freshness = assess(path)
+        self._outline.set_model(
+            WorkflowModel(
+                case=path,
+                checks_passed=self._checks_pass(case),
+                has_geometry=bool(path and existing_surfaces(path)),
+                has_mesh=self._freshness.has_mesh,
+                has_results=self._freshness.has_results,
+                freshness=self._freshness,
+                plan_meshes=self._plan_meshes(case),
+                empty_steps=self._empty_steps(path),
+            )
+        )
+        self._refresh_mesh_document()
+        self._refresh_ribbon()
+
+    def _refresh_mesh_document(self) -> None:
+        """Draw the generated mesh, or say why there is none (DEC-23).
+
+        Read only when the mesh has actually been written since last time. The
+        cost is a walk of ``constant/polyMesh``, and this runs on every save.
+        """
+        signature = (
+            (str(self._case_path), self._freshness.mesh_written_at)
+            if self._case_path is not None
+            else None
+        )
+        if signature == self._mesh_shown:
+            return
+        self._mesh_shown = signature
+
+        result = read_mesh_surface(self._case_path)
+        if isinstance(result, Unavailable):
+            self._mesh_patches = {}
+            self._mesh_preview.set_sample(None, message=self._labels[f"mesh_{result.value}"])
+            return
+
+        self._mesh_patches = dict(result.patch_of)
+        self._mesh_preview.set_sample(result.sample, self._labels["doc.mesh"])
+        # ``patch_of`` is already face-group to name, which is what the widget
+        # colours and labels by.
+        self._mesh_preview.set_region_names(result.patch_of, self._patch_colours(result))
+
+    def _patch_colours(self, surface: MeshSurface) -> dict[str, str]:
+        """A colour per patch, from the palette rather than a list of its own.
+
+        The same series the imported surface's regions use, for the same reason:
+        a second set of colours is a second thing to keep in contrast with two
+        themes. Patches past the end of the series repeat, and the patch list
+        beside the model is what tells those apart — colour was never carrying
+        it alone (NFR-A2).
+        """
+        series = (
+            self._palette.accent,
+            self._palette.ready,
+            self._palette.degraded,
+            self._palette.broken,
+            self._palette.missing,
+        )
+        return {
+            name: series[group % len(series)] for group, name in sorted(surface.patch_of.items())
+        }
+
+    def _on_mesh_face_picked(self) -> None:
+        """A click on the mesh selects the patch it belongs to (DEC-23).
+
+        The task page is not switched and the document is not changed: the user
+        pointed at something to find out what it is, and taking the model away
+        from under them to answer would be a poor trade. The Regions page is
+        where the answer lands, and it is already the page for the boundary
+        nodes.
+        """
+        picked = self._mesh_preview.selected
+        if not picked:
+            return
+        name = self._mesh_patches.get(picked[0])
+        if name:
+            self._regions.select(name)
+
+    def _empty_steps(self, path: Path | None) -> frozenset[str]:
+        """Nodes whose whole content is a settings table with nothing in it.
+
+        Computed from what the property mapping actually returns, so a node
+        reappears the moment it has something to show rather than when someone
+        remembers to take it off a list. A node whose file is merely *absent*
+        still has content — a group saying which file it wants — and stays.
+
+        With no case open nothing is hidden: the outline's job before a case is
+        opened is to show the shape of the work ahead, and a tree that grew rows
+        as it went would never let the user learn that shape.
+        """
+        if path is None:
+            return frozenset()
+        return frozenset(
+            step.id for step in STEPS if step.is_property_page and self._is_blank(path, step.id)
+        )
+
+    @staticmethod
+    def _is_blank(case: Path, step_id: str) -> bool:
+        """Whether this node's settings table would open with nothing in it.
+
+        A node with no mapping at all is blank. So is one whose files are all
+        *present* and contribute no rows — ``Monitors`` on a case whose
+        ``controlDict`` has no ``functions`` entry is a heading over an empty
+        table, which is the promise §7.9 rule 1 forbids making and not keeping.
+
+        A node whose file is merely **absent** is not blank: the group says
+        which file it wants, and that is content — it tells the user what to
+        create.
+        """
+        groups = groups_for_step(case, step_id)
+        return not groups or all(not group.missing and not group.rows for group in groups)
+
+    def _open_for_reading(self, path: Path | None) -> Case | None:
+        """Open the case for the outline's readers, or ``None``.
+
+        Swallows its own failures deliberately, as everything below it does: the
+        readers decide ticks in a tree, and a case that cannot be opened at all
+        says so through the views that exist to report it rather than through an
+        exception thrown while drawing the navigation panel.
+        """
+        if path is None:
+            return None
+        try:
+            return self._cases.open(path)
+        except Exception:
+            return None
+
+    def _plan_meshes(self, case: Case | None) -> bool:
+        """Whether this case's run plan would generate its mesh first.
+
+        Re-read on every refresh rather than kept from the plan built at open,
+        because generating meshing dictionaries from an imported surface writes
+        a ``blockMeshDict`` into a case that had none — and a stale answer would
+        keep *Calculate* blocked on a mesh the plan had since learned to build.
         """
         if case is None:
             return False
         try:
-            return not validate_case(self._cases.open(case)).blocking
+            return plan_generates_mesh(build_plan(case))
+        except ValueError:
+            # No application in controlDict, so there is no plan and nothing
+            # that would mesh. The Run page reports the same fact properly.
+            return False
+
+    def _checks_pass(self, case: Case | None) -> bool:
+        """Whether validation finds nothing that would stop a run (FR-C3).
+
+        Swallows its own failures deliberately. This decides a tick in a tree; a
+        case whose dictionaries cannot be parsed has bigger problems, and they
+        are reported by the Check Case page itself.
+        """
+        if case is None:
+            return False
+        try:
+            return not validate_case(case).blocking
         except Exception:
             return False
 
-    def _install_shortcuts(self) -> None:
-        # Ctrl+B hides the workflow column, matching the convention users already
-        # have from editors. NFR-A1 requires the whole shell to be operable
-        # without a mouse, and a panel that could only be collapsed by dragging a
-        # splitter would not be.
-        collapse = QShortcut(QKeySequence("Ctrl+B"), self)
-        collapse.activated.connect(self.toggle_workflow_panel)
+    def _resume_workflow(self) -> None:
+        """Move to the node the case is actually up to, and select it.
+
+        Opening a case used to land on the Run view whatever the case was, which
+        told a user with no mesh to run a solver that could not start. Following
+        the outline instead means the tree and the graphics window agree about
+        where the user is.
+        """
+        step = self._outline.model.resume_step
+        if step is None:
+            self._on_step_selected("solution.run")
+            return
+        self._on_step_selected(step.id)
+
+    # -- panels ------------------------------------------------------------
+
+    def toggle_outline(self) -> None:
+        self._outline.setVisible(not self._outline.isVisibleTo(self))
+
+    def toggle_task_page(self) -> None:
+        self._task_page.setVisible(not self._task_page.isVisibleTo(self))
 
     @Slot(str)
     def show_guide(self, anchor: str) -> bool:
         """Open a guide section by anchor. Returns whether it resolved."""
         if not self._guide.show_anchor(anchor):
             return False
-        self.show_view("guide")
+        self._graphics.show_document("guide")
         return True
 
     def _reload_case(self) -> None:
@@ -371,29 +915,10 @@ class Shell(QMainWindow):
         if self._case_path is not None:
             self.open_case(self._case_path)
 
-    def toggle_workflow_panel(self) -> None:
-        self._left.setVisible(not self._left.isVisibleTo(self))
-
-    # -- navigation --------------------------------------------------------
-
-    @Slot(str)
-    def show_view(self, key: str) -> None:
-        """Switch the main panel and keep the rail in step."""
-        view = self._views.get(key)
-        if view is None:
-            raise KeyError(f"Unknown view: {key!r}")
-        self._stack.setCurrentWidget(view)
-        self._current_view = key
-        log_event(_log, Event.UI_VIEW_SHOWN, view=key)
-
-    @property
-    def current_view(self) -> str | None:
-        return self._current_view
-
     # -- state -------------------------------------------------------------
 
     def set_runtime_status(self, status: RuntimeStatus) -> None:
-        """Update both the footer and the Hub banner from one value.
+        """Update both the footer and the start banner from one value.
 
         One setter for both, so they cannot disagree — a footer saying *ready*
         above a banner saying *not installed* would undermine the one guarantee
@@ -424,7 +949,7 @@ class Shell(QMainWindow):
         self.set_runtime_status(status)
         self.set_openfoam_version(status.openfoam_version)
 
-        # A usable runtime means a session the Run view can execute against.
+        # A usable runtime means a session the Run page can execute against.
         # Held here because the shell owns which case is open, and the two have
         # to be handed over together.
         if status.is_usable:
@@ -432,17 +957,22 @@ class Shell(QMainWindow):
             installations = manager.discover()
             if installations:
                 self._session = manager.session_for(installations[0])
-                self._preprocessor.set_session(self._session)
+                self._editors.set_session(self._session)
 
     def set_active_case(self, case_name: str | None) -> None:
         self._footer.set_case(case_name)
-        self.setWindowTitle(f"{case_name} — {APP_DISPLAY_NAME}" if case_name else APP_DISPLAY_NAME)
+        self.setWindowTitle(
+            self._strings["title_with_case"].format(case_name, APP_DISPLAY_NAME)
+            if case_name
+            else APP_DISPLAY_NAME
+        )
 
     def set_run_state(self, run_state: str | None) -> None:
         self._footer.set_run_state(run_state)
 
     def set_recent_cases(self, cases: list[RecentCase]) -> None:
         self._hub.set_recent_cases(cases)
+        self._ribbon.set_recent([str(case.path) for case in cases])
 
     # -- appearance --------------------------------------------------------
 
@@ -476,9 +1006,9 @@ class Shell(QMainWindow):
         picked, and :meth:`SettingsService.save` reports rather than raises for
         exactly that reason.
 
-        Accepts the plain string the footer's signal carries, because a Qt signal
-        cannot carry an enum without registering a metatype — and the coercion
-        here is also the validation, so a value from anywhere else is checked too.
+        Accepts the plain string a signal carries, because a Qt signal cannot
+        carry an enum without registering a metatype — and the coercion here is
+        also the validation, so a value from anywhere else is checked too.
         """
         self._theme = ThemeChoice(choice)
         self._footer.set_theme_choice(self._theme)
@@ -507,9 +1037,10 @@ class Shell(QMainWindow):
         """Resolve the current choice and push the palette through the window.
 
         The style sheet covers most of it, but not all: item brushes, syntax
-        highlighting and the plot canvas are set per widget and would otherwise
-        keep the previous theme's colours. So each widget that holds a palette is
-        handed the new one and re-renders what it had already drawn.
+        highlighting, the ribbon's icons and the plot canvas are set per widget
+        and would otherwise keep the previous theme's colours. So each widget
+        that holds a palette is handed the new one and re-renders what it had
+        already drawn.
         """
         palette = resolve_palette(self._theme)
         self._palette = palette
@@ -518,33 +1049,31 @@ class Shell(QMainWindow):
         if application is not None:
             application.setStyleSheet(stylesheet(palette))
 
-        self._footer.set_palette(palette)
-        self._run.set_palette(palette)
-        self._preprocessor.set_palette(palette)
+        for widget in (
+            self._ribbon,
+            self._outline,
+            self._footer,
+            self._console,
+            self._messages,
+            self._residuals,
+            self._run,
+            self._post,
+            self._editors,
+            self._verify,
+            self._regions,
+            self._library,
+            self._guide,
+            self._vandv,
+            self._files_properties,
+            self._mesh_preview,
+        ):
+            widget.set_palette(palette)
+        # The patch colours come from the palette, so they are re-derived rather
+        # than left showing the previous theme's series.
+        self._mesh_shown = None
+        self._refresh_mesh_document()
 
     # -- handlers ----------------------------------------------------------
-
-    @Slot(str)
-    def _on_hub_action(self, action: str) -> None:
-        """Route a Hub action.
-
-        Every action does the thing it is named after. Two of them used to fall
-        through to "show the Cases view", which with no case open is an empty
-        panel — so clicking *New Case* looked like clicking nothing, which §7.9
-        rule 1 forbids more strongly than it forbids an unimplemented feature.
-        """
-        handlers = {
-            "open_case": self.open_case_dialog,
-            "new_case": self.new_case_dialog,
-            "case_folder": self.reveal_case_folder,
-        }
-        if handler := handlers.get(action):
-            handler()
-            return
-        destinations = {"library": "library", "guide": "guide", "settings": "setup"}
-        self.show_view(destinations.get(action, "cases"))
-
-    # -- creating a case ---------------------------------------------------
 
     def new_case_dialog(self) -> None:
         """Ask where and what to call it, create it, and open it (FR-C1).
@@ -578,10 +1107,10 @@ class Shell(QMainWindow):
             return
 
         self.open_case(created.path)
-        # Straight to the geometry tab: a case with no mesh and no fields exists
-        # to have something imported into it, and leaving the user on a view that
-        # says "no problems found" would hide the one action that comes next.
-        self.show_view("cases")
+        # Straight to the import task: a case with no mesh and no fields exists
+        # to have something imported into it, and leaving the user on a page
+        # that says "no problems found" would hide the one action that follows.
+        self._on_step_selected("workflow.import")
 
     def reveal_case_folder(self) -> None:
         """Show the open case's folder in the desktop's file manager."""
@@ -611,12 +1140,19 @@ class Shell(QMainWindow):
     def _on_case_opened(self, case: RecentCase) -> None:
         self.open_case(case.path)
 
+    def _on_run_started(self) -> None:
+        self.set_run_state(self._strings["run_state_running"])
+        # The transcript is what the user watches during a run, so the console
+        # comes up rather than waiting to be found.
+        self._dock.show_console()
+        self._refresh_ribbon()
+
     def _on_run_finished(self, _result) -> None:
         # A finished run creates time directories and possibly a mesh, both of
-        # which the workflow list reports. Re-read rather than assume.
+        # which the outline reports. Re-read rather than assume.
         self.refresh_workflow()
         # Back to idle whatever the outcome. The footer reports *what the
-        # application is doing*, and the Run view already says how it went — two
+        # application is doing*, and the Run page already says how it went — two
         # places claiming to own the verdict is how they end up disagreeing.
         self.set_run_state(None)
 
@@ -629,7 +1165,14 @@ class Shell(QMainWindow):
             self.open_case(directory)
 
     def _ask_for_directory(self, title: str) -> Path | None:
-        chosen = QFileDialog.getExistingDirectory(self, title)
+        """Ask for a folder, opening on the desktop.
+
+        The starting directory belongs to the dialog rather than to the question,
+        which is why it is not a parameter: a test that injects this replaces the
+        whole dialog, and would gain nothing from being handed a path it never
+        shows. See :func:`~foamwb.paths.desktop_dir` for why the desktop.
+        """
+        chosen = QFileDialog.getExistingDirectory(self, title, str(desktop_dir()))
         return Path(chosen) if chosen else None
 
     def _show_message(self, title: str, body: str) -> None:
@@ -658,7 +1201,7 @@ class Shell(QMainWindow):
             self._reveal = reveal
 
     def open_case(self, path: Path) -> None:
-        """Open a case, build its plan, and show it in the Run view.
+        """Open a case, build its plan, and resume where the case is up to.
 
         Every failure here is reported and survivable. Opening a folder that is
         not a case, or one whose controlDict names no solver, is an ordinary
@@ -686,7 +1229,7 @@ class Shell(QMainWindow):
         self._case_path = case.path
         self.set_active_case(case.name)
         self.refresh_workflow()
-        self._preprocessor.set_case(case)
+        self._editors.set_case(case)
         self._vandv.set_case(
             case,
             version=self._runtime.openfoam_version if self._runtime else "",
@@ -695,78 +1238,20 @@ class Shell(QMainWindow):
         self._post.set_context(self._session, case.path)
         self._regions.set_case(case.path)
         self._verify.set_case(case.path)
-        self._initial.set_case(case.path)
         # New cases land beside the one just opened, which is where a user who
         # keeps their work in one folder expects to find them.
         self._library.set_destination(case.path.parent)
         if self._session is not None:
             self._run.set_context(self._session, case.path, plan)
-            self.show_view("run")
+            self._resume_workflow()
         else:
             # A case can be opened without a runtime; it just cannot be run. Said
-            # plainly rather than by leaving the Run button mysteriously dead.
+            # plainly rather than by leaving Calculate mysteriously dead.
+            self._resume_workflow()
             self._report(self._strings["no_runtime_title"], self._strings["no_runtime_body"])
-            self.show_view("setup")
 
         if restored:
             log_event(_log, Event.CASE_WRITE, case=str(path), action="restore_initial")
-
-    # -- for tests ---------------------------------------------------------
-
-    @property
-    def footer(self) -> StatusFooter:
-        return self._footer
-
-    @property
-    def workflow(self) -> WorkflowNav:
-        return self._workflow
-
-    @property
-    def properties(self) -> PropertyPanel:
-        return self._properties
-
-    @property
-    def regions(self) -> RegionsView:
-        return self._regions
-
-    @property
-    def verify(self) -> VerifyView:
-        return self._verify
-
-    @property
-    def guide(self) -> GuideView:
-        return self._guide
-
-    @property
-    def initial(self) -> InitialConditionsView:
-        return self._initial
-
-    @property
-    def hub(self) -> HubView:
-        return self._hub
-
-    def view(self, key: str) -> QWidget:
-        return self._views[key]
-
-    @property
-    def run_view(self) -> RunView:
-        return self._run
-
-    @property
-    def preprocessor(self) -> PreprocessorView:
-        return self._preprocessor
-
-    @property
-    def vandv(self) -> VandVView:
-        return self._vandv
-
-    @property
-    def post(self) -> PostView:
-        return self._post
-
-    @property
-    def library(self) -> LibraryView:
-        return self._library
 
     def _turbulence_dictionary(self) -> str:
         """The lineage's name for the turbulence dictionary (NFR-M3, DEC-15).
@@ -792,5 +1277,91 @@ class Shell(QMainWindow):
         group is signalled while Qt is still alive to wait for it.
         """
         self._run.shutdown()
-        self._preprocessor.shutdown()
+        self._editors.shutdown()
         super().closeEvent(event)
+
+    # -- for tests ---------------------------------------------------------
+
+    @property
+    def ribbon(self) -> Ribbon:
+        return self._ribbon
+
+    @property
+    def outline(self) -> Outline:
+        return self._outline
+
+    @property
+    def task_page(self) -> TaskPage:
+        return self._task_page
+
+    @property
+    def graphics(self) -> GraphicsWindow:
+        return self._graphics
+
+    @property
+    def console(self) -> ConsoleDock:
+        return self._dock
+
+    @property
+    def messages(self) -> MessagesPane:
+        return self._messages
+
+    @property
+    def footer(self) -> StatusFooter:
+        return self._footer
+
+    @property
+    def properties(self) -> PropertyPanel:
+        return self._editors.properties
+
+    @property
+    def editors(self) -> CaseEditors:
+        return self._editors
+
+    @property
+    def regions(self) -> RegionsView:
+        return self._regions
+
+    @property
+    def verify(self) -> VerifyView:
+        return self._verify
+
+    @property
+    def guide(self) -> GuideView:
+        return self._guide
+
+    @property
+    def initial(self):
+        return self._editors.initial
+
+    @property
+    def hub(self) -> HubView:
+        return self._hub
+
+    @property
+    def run_view(self) -> RunView:
+        return self._run
+
+    @property
+    def vandv(self) -> VandVView:
+        return self._vandv
+
+    @property
+    def post(self) -> PostView:
+        return self._post
+
+    @property
+    def library(self) -> LibraryView:
+        return self._library
+
+    @property
+    def current_step(self) -> str | None:
+        return self._current_step
+
+    @property
+    def current_document(self) -> str:
+        return self._graphics.current
+
+    @property
+    def current_page(self) -> str:
+        return self._task_page.current

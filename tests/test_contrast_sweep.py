@@ -26,20 +26,22 @@ from PySide6.QtWidgets import QWidget
 
 from foamwb.services.guide import load_guide
 from foamwb.ui import strings
+from foamwb.ui.ribbon import Ribbon
 from foamwb.ui.theme import DARK, LIGHT, Palette, contrast_ratio, stylesheet
+from foamwb.ui.views.case_editors import CaseEditors
 from foamwb.ui.views.guide import GuideView
 from foamwb.ui.views.hub import HubView
 from foamwb.ui.views.initial import InitialConditionsView
 from foamwb.ui.views.library import LibraryView
 from foamwb.ui.views.post import PostView
-from foamwb.ui.views.preprocessor import PreprocessorView
 from foamwb.ui.views.regions import RegionsView
 from foamwb.ui.views.run import RunView
 from foamwb.ui.views.vandv import VandVView
 from foamwb.ui.views.verify import VerifyView
 from foamwb.ui.widgets.diagnosis_banner import DiagnosisBanner
+from foamwb.ui.widgets.messages_pane import MessagesPane
+from foamwb.ui.widgets.outline import Outline
 from foamwb.ui.widgets.property_panel import PropertyPanel
-from foamwb.ui.widgets.workflow_nav import WorkflowNav
 
 #: WCAG 2.1 AA for body text. Large text may use 3.0, but nothing here is
 #: guaranteed large, so the stricter figure is applied throughout.
@@ -104,7 +106,7 @@ def _views(palette: Palette, qtbot) -> list[tuple[str, QWidget]]:
     built: list[tuple[str, QWidget]] = [
         ("hub", HubView(shell)),
         ("run", RunView(palette, {**shell, **strings.run_strings()})),
-        ("preprocessor", PreprocessorView(palette, {**shell, **strings.preprocessor_strings()})),
+        ("editors", CaseEditors(palette, {**shell, **strings.preprocessor_strings()})),
         ("vandv", VandVView(palette, {**shell, **strings.vandv_strings()})),
         ("library", LibraryView(palette, {**shell, **strings.library_strings()})),
         ("post", PostView(palette, {**shell, **strings.post_strings()})),
@@ -112,7 +114,12 @@ def _views(palette: Palette, qtbot) -> list[tuple[str, QWidget]]:
         ("initial", InitialConditionsView(palette, {**shell, **strings.initial_strings()})),
         ("verify", VerifyView(palette, {**shell, **strings.verify_strings()})),
         ("guide", GuideView(palette, {**shell, **strings.guide_strings()}, guide=guide)),
-        ("workflow", WorkflowNav(palette, {**shell, **strings.workflow_strings()})),
+        ("outline", Outline(palette, {**shell, **strings.workflow_strings()})),
+        ("ribbon", Ribbon(palette, {**shell, **strings.ribbon_strings()})),
+        (
+            "messages",
+            MessagesPane(palette, {**shell, **strings.messages_strings()}),
+        ),
         ("properties", PropertyPanel(palette, {**shell, **strings.workflow_strings()})),
         ("diagnosis", DiagnosisBanner(palette, {**shell, **strings.run_strings()})),
     ]

@@ -25,27 +25,13 @@ from PySide6.QtCore import QCoreApplication
 
 from foamwb.branding import APP_DISPLAY_NAME
 
-__all__ = ["nav_labels", "shell_strings", "view_placeholders"]
+__all__ = ["shell_strings", "view_placeholders"]
 
 _CONTEXT = "Shell"
 
 
 def _(source: str) -> str:
     return QCoreApplication.translate(_CONTEXT, source)
-
-
-def nav_labels() -> dict[str, str]:
-    """Display names for the nav rail, keyed by :data:`~foamwb.ui.navrail.NAV_ITEMS` key."""
-    return {
-        "hub": _("Hub"),
-        "cases": _("Cases"),
-        "setup": _("Setup"),
-        "run": _("Run"),
-        "post": _("Post"),
-        "vv": _("V&&V"),  # && escapes the mnemonic ampersand in Qt button text
-        "library": _("Library"),
-        "guide": _("Guide"),
-    }
 
 
 def shell_strings() -> dict[str, str]:
@@ -81,6 +67,14 @@ def shell_strings() -> dict[str, str]:
             "A case can be opened, but running one needs a working OpenFOAM. Setup will install it."
         ),
         "run_state_running": _("running"),
+        "up_to_date": _("Everything is up to date."),
+        "update_running": _("Updating {0}: {1}."),
+        # The window title: case, then its solver in brackets, the way Fluent
+        # titles its window with the case's solver settings.
+        "title_with_case": _("{0} — {1}"),
+        "title_with_solver": _("{0} [{1}] — {2}"),
+        "recent_menu": _("Recent Cases"),
+        "no_recent_menu": _("No recent cases"),
         # Creating a case (FR-C1)
         "new_case_where": _("Choose where to create the case"),
         "new_case_name_title": _("New case"),
@@ -101,6 +95,24 @@ def shell_strings() -> dict[str, str]:
     }
 
 
+def messages_strings() -> dict[str, str]:
+    """The Messages tab of the console dock (§7.4, FR-C3).
+
+    Its own catalogue because two things show findings — the pane and, through
+    it, the Check Case document — and one copy of each sentence is what stops a
+    translator being asked the same question twice.
+    """
+    return {
+        "messages": _("Messages"),
+        "validation": _("Validation"),
+        "no_case_open_hint": _("Open a case to edit its dictionaries."),
+        "no_findings": _("No problems found."),
+        "findings_summary": _("{0} to look at, {1} of which will stop a run."),
+        "finding": _("{0}  {1} — {2}"),
+        "finding_at_line": _("{0}, line {1}"),
+    }
+
+
 def log_pane_strings() -> dict[str, str]:
     """Strings owned by the log pane itself.
 
@@ -118,6 +130,30 @@ def log_pane_strings() -> dict[str, str]:
     }
 
 
+def stage_strip_strings() -> dict[str, str]:
+    """The stage strip's vocabulary (§7.5).
+
+    Its own catalogue because the strip is no longer only the Run view's: the
+    mesh panel shows one too, now that generating a mesh is a sequence rather
+    than four separate presses. Shared rather than copied — the same words
+    duplicated under two keys would reach a translator as two questions with one
+    right answer, and would drift the first time one of them was edited.
+    """
+    return {
+        "no_plan": _("No run planned yet."),
+        # Stage states, so the strip reads in words as well as glyphs (NFR-A2).
+        "stage_pending": _("waiting"),
+        "stage_running": _("running"),
+        "stage_succeeded": _("done"),
+        "stage_failed": _("failed"),
+        "stage_skipped": _("skipped"),
+        "stage_cancelled": _("stopped"),
+        # Compositions, translatable so a right-to-left locale can reorder them.
+        "stage_chip": _("{0}  {1}"),
+        "stage_accessible": _("{0}: {1}"),
+    }
+
+
 def run_strings() -> dict[str, str]:
     """The Run view (§7.5).
 
@@ -127,7 +163,7 @@ def run_strings() -> dict[str, str]:
     """
     return {
         **log_pane_strings(),
-        "no_plan": _("No run planned yet."),
+        **stage_strip_strings(),
         "no_case_for_run": _("Open a case to run it."),
         "ready_to_run": _("{0} is ready to run."),
         "run": _("Run"),
@@ -146,16 +182,6 @@ def run_strings() -> dict[str, str]:
         "log_scale": _("Log scale"),
         "export_csv": _("Export CSV"),
         "exported_csv": _("Exported to {0}."),
-        # Stage states, so the strip reads in words as well as glyphs (NFR-A2).
-        "stage_pending": _("waiting"),
-        "stage_running": _("running"),
-        "stage_succeeded": _("done"),
-        "stage_failed": _("failed"),
-        "stage_skipped": _("skipped"),
-        "stage_cancelled": _("stopped"),
-        # Compositions, translatable so a right-to-left locale can reorder them.
-        "stage_chip": _("{0}  {1}"),
-        "stage_accessible": _("{0}: {1}"),
         "running_stage": _("Running {0}…"),
         "run_succeeded": _("Finished in {0:.1f} s."),
         "run_failed": _("Run failed after {0:.1f} s."),
@@ -213,13 +239,52 @@ def run_strings() -> dict[str, str]:
     }
 
 
+def property_strings() -> dict[str, str]:
+    """The settings page — scFLOW's Parameter / Value / Unit."""
+    return {
+        "properties": _("Properties"),
+        "column_parameter": _("Parameter"),
+        "column_value": _("Value"),
+        "column_unit": _("Unit"),
+        "no_properties": _("This step has no settings of its own."),
+        "property_source": _("From {0}"),
+        "group_row": _("{0}   ·   {1}"),
+    }
+
+
 def preprocessor_strings() -> dict[str, str]:
     """The Preprocessor view (§7.4)."""
     return {
         # The mesh panel embeds a log pane, so it needs its vocabulary too.
         **log_pane_strings(),
+        # The initial-conditions editor is one of this view's tabs rather than a
+        # view of its own. Merged here rather than at each construction site so
+        # that "which catalogues does the preprocessor need?" has one answer —
+        # three call sites each remembering a second merge is three chances to
+        # forget, and forgetting raises a KeyError at construction.
+        **initial_strings(),
+        # The settings page is one of this view's pages too.
+        **property_strings(),
+        # Generating a mesh is a sequence, and the mesh panel shows it in the
+        # same strip the Run view uses.
+        **stage_strip_strings(),
         "stop_now": _("Stop Now"),
         "case_files": _("Case files"),
+        # Naming the faces of an imported surface (FR-P3). The names typed here
+        # become the patches of the generated mesh, which is why the hint says
+        # what a face *is* rather than only how to pick one — a user who does not
+        # know that a curved side counts as one face cannot predict the result.
+        "region_pick": _("Turn the model with a drag. Click a face to select it — {0} in all."),
+        "region_selected": _("{0} of {1} faces selected. Shift-click to add more."),
+        "region_too_large": _("This surface is too large to identify faces in."),
+        "region_name_label": _("Region name"),
+        "region_name_placeholder": _("Name for the selected faces"),
+        "region_name_apply": _("Name faces"),
+        "region_name_invalid": _("A region name needs a letter to start with."),
+        "region_name_cleaned": _("Named {1}: OpenFOAM cannot use {0} as a patch name."),
+        "region_named": _("{1} faces named {0}. Written to {2}."),
+        "region_row": _("{0}  ({1} faces)"),
+        "region_list": _("Named regions"),
         # Geometry (FR-P3)
         "geometry_tab": _("Geometry"),
         "geometry_heading": _("Surfaces"),
@@ -227,6 +292,24 @@ def preprocessor_strings() -> dict[str, str]:
             "Surfaces in constant/triSurface, which snappyHexMesh meshes around. "
             "STL and OBJ are used directly; STEP and IGES are converted on import."
         ),
+        # The imported surface, drawn (FR-P3). Not a viewer: it answers "is this
+        # the body I meant?", which a bounding box cannot.
+        "preview_accessible": _("Preview of the selected surface"),
+        "preview_hint": _("Drag to turn the model."),
+        "preview_none": _("Nothing to show."),
+        # Keyed by Unavailable's own values, so a reason added to that enum
+        # without a sentence here fails a test rather than a user's window.
+        "mesh_no_mesh": _("No mesh yet. Generate one and it appears here."),
+        "mesh_too_large": _(
+            "This mesh is too large to preview here. Open it in ParaView from Results."
+        ),
+        "mesh_unreadable": _(
+            "This mesh could not be read. It may be in binary format, which "
+            "ParaView opens and this preview does not."
+        ),
+        "mesh_patches": _("{0} patches, {1} of {2} boundary faces drawn"),
+        "mesh_patches_whole": _("{0} patches, {1} boundary faces"),
+        "preview_thinned": _("Showing {0} of {1} triangles."),
         "geometry_import": _("Import Geometry…"),
         "geometry_none": _("No geometry imported yet."),
         "geometry_filter": _(
@@ -281,13 +364,9 @@ def preprocessor_strings() -> dict[str, str]:
         "form_tab_unavailable": _("Form (not available)"),
         "text_tab": _("Text"),
         "bc_tab": _("Boundary conditions"),
+        "initial_tab": _("Initial conditions"),
         "raw_text": _("Dictionary text"),
-        "validation": _("Validation"),
-        "no_case_open_hint": _("Open a case to edit its dictionaries."),
-        "no_findings": _("No problems found."),
-        "findings_summary": _("{0} to look at, {1} of which will stop a run."),
-        "finding": _("{0}  {1} — {2}"),
-        "finding_at_line": _("{0}, line {1}"),
+        **messages_strings(),
         # Text editor
         "save": _("Save"),
         "revert": _("Revert"),
@@ -311,12 +390,50 @@ def preprocessor_strings() -> dict[str, str]:
         # Meshing utilities (FR-P5, FR-P9)
         "mesh_tab": _("Mesh"),
         "mesh_needs_runtime": _("Meshing needs a working OpenFOAM. Set one up first."),
+        # One press for the whole sequence. Named for the outcome rather than for
+        # the utilities, because the outcome is what the user wants and the
+        # utilities are what the application knows.
+        "generate_mesh": _("Generate mesh"),
+        "generate_mesh_tip": _("Run every meshing step this case needs, in order."),
+        "nothing_to_mesh": _("This case has no meshing dictionary, so there is nothing to run."),
         "utility_running": _("Running {0}…"),
         "utility_ok": _("{0} finished."),
         "utility_failed": _("{0} did not finish. {1}"),
         "utility_error": _("The utility could not start: {0}"),
         "quality_cells": _("{0} cells"),
         "quality_metric": _("{0} {1} ({2})"),
+        # transformPoints asks what to do before it runs (FR-P5)
+        "transform_title": _("Transform the mesh"),
+        "transform_operation": _("Operation"),
+        "transform_scale": _("Scale"),
+        "transform_translate": _("Translate"),
+        "transform_rotate": _("Rotate"),
+        "transform_uniform": _("Same factor on every axis"),
+        "transform_axis": _("Axis"),
+        "transform_axis_x": _("X"),
+        "transform_axis_y": _("Y"),
+        "transform_axis_z": _("Z"),
+        "transform_angle": _("Angle"),
+        "transform_x": _("X"),
+        "transform_y": _("Y"),
+        "transform_z": _("Z"),
+        "transform_scale_hint": _(
+            "Multiplies every point coordinate. A mesh drawn in millimetres "
+            "becomes metres at 0.001."
+        ),
+        "transform_translate_hint": _("Moves every point by this vector, in metres."),
+        "transform_rotate_hint": _(
+            "Turns the mesh about the chosen axis through the origin. "
+            "Degrees, anticlockwise seen from the positive end of the axis."
+        ),
+        "transform_apply": _("Apply"),
+        "transform_cancel": _("Cancel"),
+        "transform_identity": _("That would move nothing, so the mesh was left alone."),
+        "transform_cancelled": _("No transform applied."),
+        "transform_zero_scale": _(
+            "A factor of zero would flatten the mesh. Every axis needs a "
+            "non-zero factor before this can be applied."
+        ),
     }
 
 
@@ -466,88 +583,228 @@ def runtime_banner_message(state: str, code: str | None) -> str:
 
 
 def workflow_strings() -> dict[str, str]:
-    """The workflow navigation panel and the property panel (§7.2).
+    """The outline and the task page (§7.2, DEC-21).
 
-    Step names are the ones a CFD course uses, not the ones OpenFOAM's file
-    layout uses. "Boundary conditions" rather than "0/", "Solution control"
-    rather than "fvSolution" — the file is named underneath, in the property
-    panel, so the user learns the mapping instead of having to know it first.
+    Node names are Fluent's where OpenFOAM has the same thing: *Boundary
+    Conditions* rather than ``0/``, *Methods* rather than ``fvSchemes``. The file
+    is named underneath, in the task page, so the user learns the mapping
+    instead of having to know it first.
     """
     return {
-        "workflow": _("Workflow"),
-        "properties": _("Properties"),
+        "workflow": _("Outline View"),
+        "outline_filter": _("Filter the outline"),
         "case_tree": _("Case"),
-        "messages": _("Messages"),
-        # The steps, in order.
-        "step.case": _("Case"),
-        "step.case.open": _("Open a case"),
-        "step.case.files": _("All case files"),
-        "step.mesh": _("Mesh"),
-        "step.mesh.settings": _("Mesh settings"),
-        "step.mesh.regions": _("Regions and patches"),
-        "step.mesh.generate": _("Generate mesh"),
-        "step.materials": _("Material properties"),
-        "step.conditions": _("Conditions"),
-        "step.conditions.type": _("Analysis type"),
-        "step.conditions.basic": _("Basic settings"),
-        "step.conditions.initial": _("Initial conditions"),
-        "step.conditions.boundary": _("Boundary conditions"),
-        "step.conditions.control": _("Solution control"),
-        "step.conditions.output": _("Output"),
+        # The nodes, in order.
+        "step.workflow": _("Workflow"),
+        "step.workflow.import": _("Import Geometry"),
+        "step.workflow.describe": _("Describe Geometry"),
+        "step.workflow.sizing": _("Add Local Sizing"),
+        "step.workflow.boundaries": _("Update Boundaries"),
+        "step.workflow.volume": _("Generate the Volume Mesh"),
+        "step.setup": _("Setup"),
+        "step.setup.general": _("General"),
+        "step.setup.models": _("Models"),
+        "step.setup.materials": _("Materials"),
+        "step.setup.boundary": _("Boundary Conditions"),
+        "step.setup.reference": _("Reference Values"),
         "step.solution": _("Solution"),
-        "step.verify": _("Check setup"),
-        "step.execute": _("Run"),
+        "step.solution.methods": _("Methods"),
+        "step.solution.controls": _("Controls"),
+        "step.solution.monitors": _("Monitors"),
+        "step.solution.initialization": _("Initialization"),
+        "step.solution.activities": _("Calculation Activities"),
+        "step.solution.check": _("Check Case"),
+        "step.solution.run": _("Run Calculation"),
         "step.results": _("Results"),
-        "step.vandv": _("Turbulence and y+"),
-        "step.reference": _("Reference"),
-        "step.library": _("Library"),
-        "step.guide": _("Guide"),
-        # What each step is for, shown when it is selected. One sentence.
-        "hint.case.open": _("Open an existing OpenFOAM case, or install one from the Library."),
-        "hint.case.files": _("Every file in the case, as it is on disk."),
-        "hint.mesh.settings": _("Block structure and refinement, from blockMeshDict."),
-        "hint.mesh.regions": _("The named patches the boundary conditions attach to."),
-        "hint.mesh.generate": _("Run blockMesh, then checkMesh to see whether it is usable."),
-        "hint.materials": _("Viscosity and density, and the turbulence model."),
-        "hint.conditions.type": _("Steady or transient, and which turbulence model."),
-        "hint.conditions.basic": _("End time, time step and how often results are written."),
-        "hint.conditions.initial": _("The starting field values, from the 0 directory."),
-        "hint.conditions.boundary": _("Every patch and every field, as a matrix."),
-        "hint.conditions.control": _("Discretisation schemes and linear solvers."),
-        "hint.conditions.output": _("Residuals, forces and probes written during the run."),
-        "hint.verify": _("Check the case is complete and consistent before running it."),
-        "hint.execute": _("Run the solver, with the log and residuals live."),
-        "hint.results": _("Open the result in ParaView, or run a post utility."),
-        "hint.vandv": _("Turbulence model choice, y+ audit and mesh study."),
-        # Step states (NFR-A2: never colour alone).
+        "step.results.graphics": _("Graphics"),
+        "step.results.plots": _("Plots"),
+        "step.results.reports": _("Reports"),
+        "step.files": _("Files"),
+        "step.files.case": _("Case Files"),
+        # What each node is for, shown as the task page's caption. One sentence.
+        "hint.workflow.import": _("Import the surface the mesh will be built around."),
+        "hint.workflow.describe": _(
+            "Say which side of the surface the fluid is on, and how finely to resolve it."
+        ),
+        "hint.workflow.sizing": _("Block structure and refinement, from blockMeshDict."),
+        "hint.workflow.boundaries": _("The named patches the boundary conditions attach to."),
+        "hint.workflow.volume": _("Run blockMesh, then checkMesh to see whether it is usable."),
+        "hint.setup.general": _("The solver, and the time span it runs over."),
+        "hint.setup.models": _("The turbulence model, from the turbulence dictionary."),
+        "hint.setup.materials": _("Viscosity and density, from the transport dictionary."),
+        "hint.setup.boundary": _("Every patch and every field, as a matrix."),
+        "hint.setup.reference": _("Flow speed, length and target y+ for the turbulence advisor."),
+        "hint.solution.methods": _("Discretisation schemes, from fvSchemes."),
+        "hint.solution.controls": _("Linear solvers and relaxation, from fvSolution."),
+        "hint.solution.monitors": _("Residuals, forces and probes written during the run."),
+        "hint.solution.initialization": _("The starting field values, from the 0 directory."),
+        "hint.solution.activities": _("How often, and in what form, results are written."),
+        "hint.solution.check": _("Check the case is complete and consistent before running it."),
+        "hint.solution.run": _("Run the solver, with the console and residuals live."),
+        "hint.results.graphics": _("Show the mesh here, or open the result in ParaView."),
+        "hint.results.plots": _("The residual history of the last run."),
+        "hint.results.reports": _("Post utilities, and the turbulence and y+ audit."),
+        "hint.files.case": _("Every file in the case, as it is on disk."),
+        # Node states (NFR-A2: never colour alone).
         "state.done": _("done"),
         "state.available": _("ready"),
+        "state.stale": _("out of date"),
         "state.blocked": _("not yet"),
         "state.locked": _("locked"),
+        # Names the file that did it, because "needs updating" and "you edited
+        # system/blockMeshDict after building the mesh" are the same fact and
+        # only one of them can be acted on.
+        "stale_because": _("{0} changed since this was last run. Update to bring it up to date."),
         "next_step": _("Next: {0}"),
-        # Marker, then label. A required step's marker is its number in the
-        # spine, or a tick once done; an optional step keeps a state glyph.
         "step_row_state": _("{0}  {1} — {2}"),
-        "step_done_number": _("\u2713 {0}"),
         "workflow_progress": _("{0} of {1} done"),
         "workflow_progress_none": _("Open a case to begin."),
         "nothing_outstanding": _("Every required step is done."),
-        "return_to_mesh": _("Return to mesh"),
-        "locked_explains": _("The mesh is built. Return to mesh to change it."),
+        # Fluent's mode switch. Once a mesh exists the meshing workflow greys
+        # out and this brings it back.
+        "return_to_mesh": _("Switch to Meshing"),
+        "locked_explains": _("The mesh is built. Switch to Meshing to change it."),
         "blocked_no_case": _("Open a case first."),
         "blocked_no_mesh": _("Generate the mesh first."),
-        # The property panel — scFLOW's Parameter / Value / Unit.
-        "column_parameter": _("Parameter"),
-        "column_value": _("Value"),
-        "column_unit": _("Unit"),
-        "no_properties": _("Select a step to see its settings."),
-        "property_source": _("From {0}"),
+        **property_strings(),
         "step_accessible": _("{0}, {1}"),
-        # Compositions of this panel's own, rather than borrowed from the Run
-        # view: a shared key would tie two unrelated screens together and a
-        # translator would have to make one phrasing serve both.
         "step_row": _("{0}  {1}"),
-        "group_row": _("{0}   ·   {1}"),
+        # The task page beside the outline.
+        "task_page": _("Task Page"),
+        "task_page_none": _("Select a node in the outline."),
+    }
+
+
+def ribbon_strings() -> dict[str, str]:
+    """The ribbon (§7.1, DEC-21): tabs, groups and the actions in them.
+
+    Fluent's tab names, and Fluent's grouping where the application has the
+    same action. Actions it does not have — user-defined functions, parametric
+    design — are absent rather than greyed, because a permanently dead button
+    is the dead end §7.9 rule 1 forbids.
+    """
+    return {
+        "tab.file": _("File"),
+        "tab.domain": _("Domain"),
+        "tab.physics": _("Physics"),
+        "tab.solution": _("Solution"),
+        "tab.results": _("Results"),
+        "tab.view": _("View"),
+        "tab.help": _("Help"),
+        "group.mesh": _("Mesh"),
+        "group.geometry": _("Geometry"),
+        "group.sizing": _("Sizing"),
+        "group.zones": _("Zones"),
+        "group.generate": _("Generate"),
+        "group.solver": _("Solver"),
+        "group.models": _("Models"),
+        "group.materials": _("Materials"),
+        "group.reference": _("Reference"),
+        "group.methods": _("Methods"),
+        "group.controls": _("Controls"),
+        "group.monitors": _("Monitors"),
+        "group.initialization": _("Initialization"),
+        "group.activities": _("Activities"),
+        "group.run": _("Run Calculation"),
+        "group.graphics": _("Graphics"),
+        "group.plots": _("Plots"),
+        "group.reports": _("Reports"),
+        "group.export": _("Export"),
+        "group.display": _("Display"),
+        "group.layout": _("Layout"),
+        "group.appearance": _("Appearance"),
+        "action.new_case": _("New Case…"),
+        "action.open_case": _("Open Case…"),
+        "action.import_geometry": _("Import"),
+        "action.import_geometry_menu": _("Import Geometry…"),
+        "action.case_files": _("Case Files"),
+        "action.library": _("Library…"),
+        "action.case_folder": _("Case Folder"),
+        "action.settings": _("Settings…"),
+        "action.exit": _("Exit"),
+        "action.check_mesh": _("Check"),
+        "action.display_mesh": _("Display"),
+        "action.describe_geometry": _("Describe"),
+        "action.local_sizing": _("Local Sizing"),
+        "action.update_boundaries": _("Boundaries"),
+        "action.volume_mesh": _("Volume Mesh"),
+        "action.general": _("General"),
+        "action.models": _("Models"),
+        "action.materials": _("Materials"),
+        "action.boundary_conditions": _("Boundaries"),
+        "action.reference_values": _("Reference Values"),
+        "action.methods": _("Methods"),
+        "action.controls": _("Controls"),
+        "action.monitors": _("Monitors"),
+        "action.initialization": _("Initialize"),
+        "action.activities": _("Autosave"),
+        "action.check_case": _("Check Case"),
+        "action.update": _("Update"),
+        "action.calculate": _("Calculate"),
+        # && escapes the mnemonic ampersand in Qt button text.
+        "action.stop_write": _("Stop && Write"),
+        "action.graphics": _("Mesh"),
+        "action.paraview": _("ParaView"),
+        "action.residuals": _("Residuals"),
+        "action.reports": _("Reports"),
+        "action.export_csv": _("Residuals CSV"),
+        "action.fit_view": _("Fit"),
+        "action.reset_view": _("Reset View"),
+        "action.toggle_outline": _("Outline"),
+        "action.toggle_task_page": _("Task Page"),
+        "action.toggle_console": _("Console"),
+        "action.theme_light": _("Light"),
+        "action.theme_dark": _("Dark"),
+        "action.theme_system": _("System"),
+        "action.guide": _("Guide"),
+        # Tooltips carry the shortcut, so the keyboard route is discoverable.
+        "tip.with_shortcut": _("{0}  ({1})"),
+        "tip.new_case": _("Create an empty case folder"),
+        "tip.open_case": _("Open an existing OpenFOAM case folder"),
+        "tip.import_geometry": _("Import an STL, OBJ, STEP or IGES surface"),
+        "tip.check_mesh": _("Run checkMesh and report the quality figures"),
+        "tip.display_mesh": _("Show the surface and mesh in the graphics window"),
+        "tip.volume_mesh": _("Run the meshing utilities in order"),
+        "tip.check_case": _("Validate the case before running it"),
+        "tip.update": _("Run whatever is out of date — meshing first if the mesh needs it"),
+        "tip.calculate": _("Run the solver"),
+        "tip.stop_write": _("Stop at the next write, leaving a complete result"),
+        "tip.paraview": _("Open the result in ParaView"),
+        "tip.export_csv": _("Write the residual history beside the case"),
+        "tip.reset_view": _("Return the graphics window to the default view"),
+        "tip.toggle_outline": _("Show or hide the outline"),
+        "tip.toggle_task_page": _("Show or hide the task page"),
+        "tip.toggle_console": _("Show or hide the console"),
+        "tip.guide": _("Open the built-in guide"),
+    }
+
+
+def console_strings() -> dict[str, str]:
+    """The console dock under the graphics window (§7.5, DEC-21)."""
+    return {
+        **log_pane_strings(),
+        **messages_strings(),
+        "console": _("Console"),
+        "console_collapse": _("Collapse the console"),
+        "console_expand": _("Expand the console"),
+    }
+
+
+def graphics_strings() -> dict[str, str]:
+    """The graphics window's document tabs (DEC-21)."""
+    return {
+        "graphics_window": _("Graphics window"),
+        "doc.start": _("Start"),
+        "doc.geometry": _("Geometry"),
+        "doc.mesh": _("Mesh"),
+        "doc.residuals": _("Scaled Residuals"),
+        "doc.boundary": _("Boundary Conditions"),
+        "doc.files": _("Case Files"),
+        "doc.vv": _("Turbulence and y+"),
+        "doc.verify": _("Check Case"),
+        "doc.library": _("Library"),
+        "doc.guide": _("Guide"),
+        "doc.setup": _("Setup"),
     }
 
 
@@ -724,7 +981,7 @@ def post_strings() -> dict[str, str]:
 
 
 def view_placeholders() -> dict[str, tuple[str, str]]:
-    """Title and explanatory body for each view that is not built yet.
+    """Title and explanatory body for each document that is not built yet.
 
     Each names the milestone that will fill it. §7.9's "no dead ends" applies to
     unfinished software as much as to error states: a blank pane tells the user
@@ -732,48 +989,11 @@ def view_placeholders() -> dict[str, tuple[str, str]]:
     broken.
     """
     return {
-        "cases": (
-            _("Cases"),
-            _(
-                "The case browser and dictionary editors arrive with the "
-                "preprocessor. For now, open a case from the Hub."
-            ),
-        ),
         "setup": (
             _("Setup"),
             _(
                 "The setup wizard — system check, runtime provisioning, ParaView "
                 "and a verification run — arrives with runtime support."
             ),
-        ),
-        "run": (
-            _("Run"),
-            _(
-                "The run view shows the plan as a stage strip, streams the solver "
-                "log, and plots residuals as the solution converges."
-            ),
-        ),
-        "post": (
-            _("Post"),
-            _(
-                "Postprocessing launches ParaView on the current case, runs the "
-                "standard post utilities, and generates the run report."
-            ),
-        ),
-        "vv": (
-            _("Verification and validation"),
-            _(
-                "The turbulence advisor with its y+ audit ships in v1.0. The grid "
-                "convergence study and comparison against experimental data "
-                "follow in v1.1."
-            ),
-        ),
-        "library": (
-            _("Library"),
-            _("The content library offers tutorials and example cases to install."),
-        ),
-        "guide": (
-            _("Guide"),
-            _("The built-in guide is searchable and works entirely offline."),
         ),
     }

@@ -230,11 +230,9 @@ class TestTheEditorIsWiredToTheCase:
         from foamwb.services.case import CaseService
         from foamwb.ui import strings
         from foamwb.ui.theme import LIGHT
-        from foamwb.ui.views.preprocessor import PreprocessorView
+        from foamwb.ui.views.case_editors import CaseEditors
 
-        view = PreprocessorView(
-            LIGHT, {**strings.shell_strings(), **strings.preprocessor_strings()}
-        )
+        view = CaseEditors(LIGHT, {**strings.shell_strings(), **strings.preprocessor_strings()})
         qtbot.addWidget(view)
         view.text._journal = JournalService(tmp_path / "journal")
         return view, CaseService()

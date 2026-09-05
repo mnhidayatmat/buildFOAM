@@ -1,4 +1,10 @@
-"""The Preprocessor view and its editors (§7.4, FR-P1, FR-P6, FR-P7, DEC-07)."""
+"""The case editors (§7.4, FR-P1, FR-P6, FR-P7, DEC-07, DEC-21).
+
+The editors are built and wired here and *placed* by the shell, so these tests
+assert what they do rather than where they sit — which is what let the Fluent
+layout move the boundary matrix into the graphics window without rewriting a
+single assertion about what the matrix contains.
+"""
 
 from __future__ import annotations
 
@@ -9,22 +15,101 @@ from foamwb.services.foamdict import Document
 from foamwb.services.schema import load_schema
 from foamwb.ui import strings
 from foamwb.ui.theme import DARK, LIGHT
-from foamwb.ui.views.preprocessor import PreprocessorView
+from foamwb.ui.views.case_editors import CaseEditors
 from foamwb.ui.widgets.form_editor import FormEditor
+from foamwb.ui.widgets.messages_pane import MessagesPane
 from foamwb.ui.widgets.text_editor import TextEditor
 from test_preprocessor import CONTROL_DICT, make_case
 
 
 @pytest.fixture
 def labels() -> dict[str, str]:
-    return {**strings.shell_strings(), **strings.preprocessor_strings()}
+    return {
+        **strings.shell_strings(),
+        **strings.preprocessor_strings(),
+        **strings.workflow_strings(),
+    }
 
 
 @pytest.fixture
-def view(qtbot, labels) -> PreprocessorView:
-    widget = PreprocessorView(LIGHT, labels)
+def view(qtbot, labels) -> CaseEditors:
+    widget = CaseEditors(LIGHT, labels)
     qtbot.addWidget(widget)
     return widget
+
+
+@pytest.fixture
+def messages(qtbot, labels, view: CaseEditors) -> MessagesPane:
+    """The findings pane, wired to the editors the way the shell wires it.
+
+    Validation used to be a column inside this view; it is the console dock's
+    Messages tab now (DEC-21). The behaviour is the same and so is the test —
+    only the thing holding the list has changed.
+    """
+    pane = MessagesPane(LIGHT, labels)
+    qtbot.addWidget(pane)
+    view.validated.connect(lambda v: pane.set_findings(v, has_case=v is not None))
+    pane.finding_activated.connect(lambda f: view.show_line(f.file, f.line, f.column))
+    return pane
+
+
+class TestThePiecesAreBuiltAndWired:
+    """The editors are handed out, not laid out (DEC-21)."""
+
+    def test_every_editor_exists(self, view: CaseEditors) -> None:
+        for widget in (
+            view.properties,
+            view.geometry,
+            view.sizing,
+            view.mesh,
+            view.matrix,
+            view.initial,
+            view.files,
+            view.preview,
+            view.form,
+            view.text,
+        ):
+            assert widget is not None
+
+    def test_the_sizing_form_left_the_geometry_panel(self, view: CaseEditors) -> None:
+        """It belongs to its own outline node, so it must not also be embedded
+        in the panel above it — one widget shown in two places is a widget that
+        disappears from one of them."""
+        assert view.sizing not in view.geometry.findChildren(type(view.sizing))
+
+    def test_the_geometry_panel_points_at_the_shared_preview(self, view: CaseEditors) -> None:
+        """Naming a face is a control in the task page acting on the picture in
+        the graphics window; two previews would mean naming the wrong one."""
+        assert view.geometry.preview is view.preview
+
+    def test_the_form_and_text_pair_survives(self, view: CaseEditors) -> None:
+        # DEC-07: two views of the same dictionary, always both.
+        from PySide6.QtWidgets import QTabWidget
+
+        assert isinstance(view.editors, QTabWidget)
+        assert view.editors.count() == 2
+
+    def test_a_file_with_no_form_still_opens_in_text(self, view: CaseEditors, tmp_path) -> None:
+        case = make_case(tmp_path)
+        (case / "system" / "oddity").write_bytes(b"a { b c; }\n")
+        view.set_case(CaseService().open(case))
+        view.open_file(case / "system" / "oddity")
+        assert not view.form_available
+        assert view.text.text
+
+
+class TestInitialConditions:
+    """FR-P3 — the interior values, beside the boundary ones."""
+
+    def test_opening_a_case_loads_its_fields(self, view: CaseEditors, tmp_path) -> None:
+        case = make_case(tmp_path)
+        (case / "0" / "p").write_bytes(
+            b"FoamFile{version 2.0;format ascii;class volScalarField;object p;}\n"
+            b"dimensions [0 2 -2 0 0 0 0];\ninternalField uniform 0;\n"
+            b"boundaryField{}\n"
+        )
+        view.set_case(CaseService().open(case))
+        assert "p" in view.initial.field_names
 
 
 class TestTextEditor:
@@ -207,22 +292,22 @@ class TestPreprocessorView:
         assert not view.form_available
         assert "movingWall" in view.text.text
 
-    def test_the_validation_panel_lists_findings(self, view, tmp_path) -> None:
+    def test_findings_reach_the_messages_pane(self, view, messages, tmp_path) -> None:
         case = make_case(tmp_path, fields={"p": {"movingWall": "zeroGradient"}})
         view.set_case(CaseService().open(case))
-        assert view.finding_count > 0
-        assert "stop a run" in view.summary_text
+        assert messages.count > 0
+        assert "stop a run" in messages.summary_text
 
-    def test_a_clean_case_says_so(self, view, tmp_path) -> None:
+    def test_a_clean_case_says_so(self, view, messages, tmp_path) -> None:
         view.set_case(CaseService().open(make_case(tmp_path)))
-        assert view.finding_count == 0
-        assert "No problems" in view.summary_text
+        assert messages.count == 0
+        assert "No problems" in messages.summary_text
 
-    def test_activating_a_finding_opens_its_file(self, view, tmp_path) -> None:
+    def test_activating_a_finding_opens_its_file(self, view, messages, tmp_path) -> None:
         # §7.4: each finding is clickable to the offending line.
         case = make_case(tmp_path, fields={"p": {"movingWall": "zeroGradient"}})
         view.set_case(CaseService().open(case))
-        view.activate_finding(0)
+        messages.activate(0)
         assert view.current_file.name == "p"
 
     def test_saving_through_the_form_writes_the_file(self, view, tmp_path) -> None:
@@ -232,11 +317,11 @@ class TestPreprocessorView:
         view.form.save()
         assert "endTime         3;" in (case / "system" / "controlDict").read_text()
 
-    def test_saving_re_runs_validation(self, view, tmp_path) -> None:
-        # A panel that could drift from the files beside it would be believed.
+    def test_saving_re_runs_validation(self, view, messages, tmp_path) -> None:
+        # A pane that could drift from the files beside it would be believed.
         case = make_case(tmp_path, fields={"p": {"movingWall": "zeroGradient"}})
         view.set_case(CaseService().open(case))
-        assert view.finding_count > 0
+        assert messages.count > 0
 
         target = case / "0" / "p"
         text = target.read_text().replace(
@@ -248,7 +333,7 @@ class TestPreprocessorView:
         view.open_file(target)
         view.text.set_text(text)
         view.text.save()
-        assert view.finding_count == 0
+        assert messages.count == 0
 
     def test_the_bulk_action_updates_every_patch_of_a_type(self, view, tmp_path) -> None:
         # §7.4: "because that is what the work actually is".
@@ -366,16 +451,18 @@ class TestRethemingKeepsTheEditorsIntact:
         ]
         assert after == before
 
-    def test_the_validation_panel_still_agrees_with_the_case(self, view, tmp_path) -> None:
+    def test_the_findings_still_agree_with_the_case(self, view, messages, tmp_path) -> None:
         # Re-derived rather than recoloured, because these colours *mean*
         # something: red is a finding that blocks the run.
         view.set_case(CaseService().open(make_case(tmp_path)))
-        before = view.finding_count
-        summary = view.summary_text
+        before = messages.count
+        summary = messages.summary_text
         view.set_palette(DARK)
-        assert view.finding_count == before
-        assert view.summary_text == summary
+        messages.set_palette(DARK)
+        assert messages.count == before
+        assert messages.summary_text == summary
 
-    def test_a_view_with_no_case_open_does_not_raise(self, view) -> None:
+    def test_a_view_with_no_case_open_does_not_raise(self, view, messages) -> None:
         view.set_palette(DARK)
-        assert view.summary_text
+        messages.set_palette(DARK)
+        assert messages.summary_text

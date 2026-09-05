@@ -24,9 +24,10 @@ from __future__ import annotations
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
 from foamwb.codes import Code, ErrorCode
 from foamwb.logs import Event, get_logger, log_event
@@ -35,6 +36,15 @@ from foamwb.services.case import Case
 from foamwb.services.run.diagnosis import Diagnosis, DivergenceWatcher, diagnose
 from foamwb.services.run.plan import RunPlan, Severity, Stage, StageState
 from foamwb.services.runtime.session import RuntimeSession
+
+if TYPE_CHECKING:  # pragma: no cover - imported for the annotation only
+    # Under the guard because the dependency is one-way at runtime and the
+    # import is not: ``freshness`` reads the meshing utility table, which reads
+    # this package, so importing it here at module scope closes a three-service
+    # cycle. Nothing below needs the class itself — only the two facts it
+    # carries — and ``from __future__ import annotations`` makes the signature a
+    # string, so the contract is still stated where a reader looks for it.
+    from foamwb.services.freshness import Freshness
 
 __all__ = [
     "ABORT_ACKNOWLEDGED",
@@ -144,6 +154,23 @@ def classify(line: str) -> Severity | None:
     return None
 
 
+#: Stages that produce a mesh rather than consuming one. A plan containing any
+#: of these does not need a mesh to already exist — it makes the one it uses.
+MESHING_STAGES: frozenset[str] = frozenset({"blockMesh"})
+
+
+def plan_generates_mesh(plan: RunPlan) -> bool:
+    """Whether running this plan would produce the mesh its solver needs.
+
+    Asked of the plan rather than of the case, because the plan is where the
+    answer already is: :func:`build_plan` decides on evidence which meshing
+    stages a case supports, and a second reading of the same directory would be
+    free to disagree with it. The caller that matters is the workflow panel,
+    which must not report *Run* as blocked on a mesh the run itself would build.
+    """
+    return any(stage.name in MESHING_STAGES for stage in plan.stages)
+
+
 def build_plan(case: Case, *, n_procs: int = 1) -> RunPlan:
     """Compose the default plan for a case (§4.2's ``plan(case, options)``).
 
@@ -196,6 +223,64 @@ def build_plan(case: Case, *, n_procs: int = 1) -> RunPlan:
         )
 
     return RunPlan(case=case.path, stages=tuple(stages), n_procs=n_procs)
+
+
+#: Stages that exist to produce the mesh. Everything else in a plan is either
+#: preparation for the solve or the solve itself, and so belongs to the second
+#: half of an update.
+_MESH_ONLY: frozenset[str] = MESHING_STAGES
+
+
+def build_update_plan(case: Case, freshness: Freshness, *, n_procs: int = 1) -> RunPlan:
+    """The stages that would bring this case up to date, in order (DEC-22).
+
+    Workbench's *Update Project*: one verb that runs whatever is stale, rather
+    than a user who must work out for themselves that editing ``blockMeshDict``
+    means meshing again *and then* solving again.
+
+    Built by taking the ordinary plan and **skipping** the stages whose output
+    is already current, rather than by assembling a shorter plan. Two reasons.
+    The stage strip then shows the whole shape of the run with the skipped parts
+    marked, which is FR-S1's promise — the plan the user reviewed is the plan
+    they watch — and it is a far more useful answer than a strip with two chips
+    on it: "blockMesh: skipped" says the mesh is current, where its absence
+    would say nothing at all. And the machinery already exists: ``when`` is
+    documented as taking the whole plan precisely so that "only if the mesh
+    changed" needs no signature change.
+
+    A case with nothing outstanding produces a plan whose every stage is
+    skipped. That is a legitimate answer and the caller is expected to say so
+    rather than launching it; running it would be a no-op that looked like work.
+    """
+    plan = build_plan(case, n_procs=n_procs)
+
+    # A mesh that does not exist, or was built from inputs that have since
+    # changed, has to be built. Note the asymmetry with the solve below: a mesh
+    # is not stale because the *solver's* settings changed.
+    mesh_needed = not freshness.has_mesh or freshness.mesh_is_stale
+    # Re-meshing invalidates every result, so a solve follows a mesh
+    # unconditionally — this is the downstream half of the propagation the
+    # outline shows as ⚡.
+    solve_needed = mesh_needed or not freshness.has_results or freshness.results_are_stale
+
+    stages = tuple(
+        _gated(stage, mesh_needed if stage.name in _MESH_ONLY else solve_needed)
+        for stage in plan.stages
+    )
+    return RunPlan(case=plan.case, stages=stages, n_procs=plan.n_procs)
+
+
+def _gated(stage: Stage, needed: bool) -> Stage:
+    """The same stage, additionally conditional on ``needed``.
+
+    The existing predicate is kept and *and*-ed with the new one rather than
+    replaced: ``decomposePar`` already carries "only in parallel", and dropping
+    that would put an MPI stage into a serial run.
+    """
+    if needed:
+        return stage
+    existing = stage.when
+    return replace(stage, when=lambda plan, _existing=existing: False)
 
 
 class RunController:

@@ -512,6 +512,21 @@ class VandVView(QWidget):
         self.case_changed.emit()
         return result.changed_anything
 
+    # -- appearance --------------------------------------------------------
+
+    def set_palette(self, palette: Palette) -> None:
+        """Adopt a new palette and repaint what carries a colour (NFR-A4).
+
+        The y+ audit is re-derived rather than recoloured cell by cell, because
+        its colours *mean* something — red is a patch outside the model's valid
+        band — and re-running the audit is the only way to be certain the
+        verdicts and the colours still agree. The caveat line is left alone: it
+        is a sentence written under one of two tokens and the next thing that
+        writes it will pick the current one.
+        """
+        self._palette = palette
+        self.refresh_audit()
+
     # -- audit -------------------------------------------------------------
 
     def refresh_audit(self) -> None:

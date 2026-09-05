@@ -12,12 +12,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtGui import QMouseEvent
 
 from foamwb.services.cad import CadConverter
+from foamwb.services.geometry import existing_surfaces
 from foamwb.ui import strings
 from foamwb.ui.theme import LIGHT
 from foamwb.ui.widgets.geometry_panel import GeometryPanel
+from foamwb.ui.widgets.surface_preview import SurfacePreview
 from test_geometry import ASCII_STL, FakeKernel, converter_with
+from test_preview import cube_triangles, write_ascii
 
 
 @pytest.fixture
@@ -93,6 +98,55 @@ class TestImporting:
         panel.set_dialogs(choose_file=lambda _title, _filters: None)
         panel.import_dialog()
         assert panel.surfaces == []
+
+    def test_an_imported_surface_is_drawn(
+        self, panel: GeometryPanel, case: Path, tmp_path: Path
+    ) -> None:
+        # The bounding box catches units and nothing else — not the wrong body,
+        # not half an assembly, not a surface that came out inside out.
+        source = tmp_path / "box.stl"
+        source.write_text(ASCII_STL)
+        panel.set_case(case)
+        panel.import_file(source)
+        assert panel.preview.triangle_count > 0
+        assert panel.preview.showing == "box.stl"
+
+    def test_the_preview_is_hidden_when_there_is_nothing_to_show(
+        self, panel: GeometryPanel, case: Path
+    ) -> None:
+        panel.set_case(case)
+        assert not panel.preview.isVisibleTo(panel)
+
+    def test_the_preview_follows_the_selection(
+        self, panel: GeometryPanel, case: Path, tmp_path: Path
+    ) -> None:
+        panel.set_case(case)
+        for name in ("one.stl", "two.stl"):
+            source = tmp_path / name
+            source.write_text(ASCII_STL)
+            panel.import_file(source)
+
+        panel.select(0)
+        assert panel.preview.showing == "one.stl"
+        panel.select(1)
+        assert panel.preview.showing == "two.stl"
+
+    def test_turning_one_surface_does_not_carry_over_to_the_next(
+        self, panel: GeometryPanel, case: Path, tmp_path: Path
+    ) -> None:
+        # A user shown a new import upside down would read it as a fault in the
+        # file they just chose.
+        panel.set_case(case)
+        for name in ("one.stl", "two.stl"):
+            source = tmp_path / name
+            source.write_text(ASCII_STL)
+            panel.import_file(source)
+
+        panel.select(0)
+        started_at = panel.preview.angles
+        panel.preview._yaw += 1.0
+        panel.select(1)
+        assert panel.preview.angles == started_at
 
     def test_the_row_states_the_size_so_wrong_units_are_visible(
         self, panel: GeometryPanel, case: Path, tmp_path: Path
@@ -340,3 +394,153 @@ class TestMeshSection:
         panel.select(0)
         panel.remove_selected()
         assert not panel.can_generate
+
+
+class TestNamingFacesFromTheView:
+    """FR-P3 — the names typed here become the mesh's patches."""
+
+    @pytest.fixture
+    def cube_case(self, panel: GeometryPanel, case: Path, tmp_path: Path) -> GeometryPanel:
+        source = write_ascii(tmp_path / "cube.stl", cube_triangles())
+        panel.set_case(case)
+        panel.set_dialogs(choose_file=lambda _t, _f: source)
+        panel.import_dialog()
+        # Paint once: picking is tested against what was drawn, so nothing can
+        # be picked until a frame exists — which is the honest constraint, not a
+        # test artefact. The size is the layout's, not ours to choose, so the
+        # click point below is taken from the widget rather than assumed.
+        panel.preview.grab()
+        return panel
+
+    def test_a_cube_offers_six_faces(self, cube_case: GeometryPanel) -> None:
+        assert cube_case.preview.faces_known
+        assert cube_case.preview.face_count == 6
+
+    def test_clicking_the_model_selects_one_face(self, cube_case: GeometryPanel) -> None:
+        face = _centre_face(cube_case.preview)
+        assert face is not None
+        cube_case.preview.select([face])
+        assert cube_case.preview.selected == (face,)
+
+    def test_naming_writes_a_surface_with_that_solid(self, cube_case: GeometryPanel) -> None:
+        cube_case.preview.select([0])
+        cube_case.region_name_field.setText("inlet")
+        assert cube_case.name_selection()
+
+        named = [s for s in existing_surfaces(cube_case._case) if "inlet" in s.solids]
+        assert named, "the named surface should be in constant/triSurface"
+
+    def test_a_name_openfoam_cannot_use_is_corrected_and_said(
+        self, cube_case: GeometryPanel
+    ) -> None:
+        """Silently rewriting it would leave the user hunting for their patch."""
+        cube_case.preview.select([0])
+        cube_case.region_name_field.setText("front face")
+        assert cube_case.name_selection()
+        assert "front face" in cube_case.status_text
+        assert "front_face" in cube_case.status_text
+
+    def test_naming_nothing_does_nothing(self, cube_case: GeometryPanel) -> None:
+        cube_case.preview.clear_selection()
+        cube_case.region_name_field.setText("inlet")
+        assert not cube_case.name_selection()
+
+    def test_an_empty_name_is_refused_with_a_reason(self, cube_case: GeometryPanel) -> None:
+        cube_case.preview.select([0])
+        cube_case.region_name_field.setText("!!!")
+        assert not cube_case.name_selection()
+        assert cube_case.status_text
+
+    def test_the_named_regions_are_listed(self, cube_case: GeometryPanel) -> None:
+        cube_case.preview.select([0])
+        cube_case.region_name_field.setText("inlet")
+        cube_case.name_selection()
+        assert "inlet" in cube_case.region_rows[0]
+
+    def test_naming_clears_the_selection_ready_for_the_next_face(
+        self, cube_case: GeometryPanel
+    ) -> None:
+        cube_case.preview.select([0])
+        cube_case.region_name_field.setText("inlet")
+        cube_case.name_selection()
+        assert cube_case.preview.selected == ()
+
+    def test_the_hint_counts_the_faces_it_found(self, cube_case: GeometryPanel) -> None:
+        """NFR-A2 — the selection is in words as well as in colour."""
+        assert "6" in cube_case.naming_hint
+
+    def test_switching_surface_drops_the_selection(
+        self, cube_case: GeometryPanel, tmp_path: Path
+    ) -> None:
+        """Face ids mean nothing across files, so a kept selection would lie."""
+        cube_case.preview.select([0])
+        cube_case.preview.set_surface(write_ascii(tmp_path / "b.stl", cube_triangles()), "b.stl")
+        assert cube_case.preview.selected == ()
+
+
+class TestTurningIsNotSelecting:
+    """One button does both gestures, so they are told apart by travel."""
+
+    def _press(self, widget, x: float, y: float, buttons=Qt.MouseButton.LeftButton):
+        return QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(x, y),
+            Qt.MouseButton.LeftButton,
+            buttons,
+            Qt.KeyboardModifier.NoModifier,
+        )
+
+    def _release(self, x: float, y: float):
+        return QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            QPointF(x, y),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+
+    @pytest.fixture
+    def preview(self, qtbot, labels, tmp_path: Path):
+        widget = SurfacePreview(LIGHT, labels)
+        qtbot.addWidget(widget)
+        widget.resize(400, 300)
+        widget.set_surface(write_ascii(tmp_path / "cube.stl", cube_triangles()), "cube.stl")
+        widget.grab()
+        return widget
+
+    def test_a_click_selects(self, preview) -> None:
+        x, y = _centre_of(preview)
+        preview.mousePressEvent(self._press(preview, x, y))
+        preview.mouseReleaseEvent(self._release(x, y))
+        assert preview.selected
+
+    def test_a_drag_turns_without_selecting(self, preview) -> None:
+        x, y = _centre_of(preview)
+        before = preview.angles
+        preview.mousePressEvent(self._press(preview, x, y))
+        preview.mouseMoveEvent(self._press(preview, x + 60, y))
+        preview.mouseReleaseEvent(self._release(x + 60, y))
+        assert preview.angles != before
+        assert preview.selected == ()
+
+    def test_a_click_on_the_background_clears(self, preview) -> None:
+        preview.select([0])
+        preview.mousePressEvent(self._press(preview, 1, 1))
+        preview.mouseReleaseEvent(self._release(1, 1))
+        assert preview.selected == ()
+
+
+def _centre_of(preview) -> tuple[float, float]:
+    """The middle of the widget as it was actually painted.
+
+    Not a fixed point: the preview's size comes from the layout it sits in, and
+    a hard-coded coordinate silently lands off the model the first time that
+    layout changes — which is a test that stops testing rather than one that
+    fails.
+    """
+    return preview.width() / 2, preview.height() / 2
+
+
+def _centre_face(preview) -> int | None:
+    x, y = _centre_of(preview)
+    return preview.face_at(x, y)

@@ -83,6 +83,15 @@ class Patch:
     name: str
     type: str
     n_faces: int = 0
+    start_face: int = 0
+    """Index of this patch's first face in ``polyMesh/faces``.
+
+    Boundary faces are stored contiguously at the end of that list, so a patch
+    is the slice ``[start_face : start_face + n_faces]``. Read here rather than
+    where it is used, because it is one of the four things this file states
+    about a patch and leaving it out would mean a second reader of the same
+    file (DEC-23)."""
+
     in_groups: tuple[str, ...] = ()
 
     @property
@@ -133,6 +142,7 @@ def read_boundary(case: Path) -> list[Patch]:
             name=node.keyword,
             type=interior.get(f"{node.keyword}/type") or "",
             n_faces=_as_int(interior.get(f"{node.keyword}/nFaces")),
+            start_face=_as_int(interior.get(f"{node.keyword}/startFace")),
             in_groups=_groups(interior.get(f"{node.keyword}/inGroups")),
         )
         if not patch.is_internal:

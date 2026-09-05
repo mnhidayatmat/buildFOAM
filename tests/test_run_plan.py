@@ -13,7 +13,24 @@ from pathlib import Path
 
 import pytest
 
-from foamwb.services.run import RunPlan, Severity, Stage, StageState
+from foamwb.services.case import CaseService
+from foamwb.services.freshness import Freshness
+from foamwb.services.run import (
+    RunPlan,
+    Severity,
+    Stage,
+    StageState,
+    build_update_plan,
+    plan_generates_mesh,
+)
+
+#: Enough of one for `build_plan` to see a case it can mesh. What it *would*
+#: mesh is beside the point here: the plan is composed from the file's presence,
+#: never from its contents.
+BLOCK_MESH_DICT = (
+    "FoamFile { version 2.0; format ascii; class dictionary; object blockMeshDict; }\n"
+    "convertToMeters 1;\n"
+)
 
 
 def solve_plan(n_procs: int = 1) -> RunPlan:
@@ -119,3 +136,126 @@ class TestValidation:
     def test_severity_is_a_threshold_not_an_exact_match(self) -> None:
         assert Severity.ERROR > Severity.WARNING > Severity.INFO
         assert Severity.FATAL > Severity.ERROR
+
+
+class TestPlanGeneratesMesh:
+    """What the workflow panel asks before blocking *Run* on a missing mesh."""
+
+    def test_a_plan_beginning_with_blockmesh_makes_its_own_mesh(self) -> None:
+        assert plan_generates_mesh(solve_plan())
+
+    def test_a_plan_that_only_checks_the_mesh_does_not_make_one(self) -> None:
+        plan = RunPlan(
+            case=Path("/cases/wing"),
+            stages=(
+                Stage("checkMesh", argv=("checkMesh",), fail_on=Severity.ERROR),
+                Stage("solve", argv=("simpleFoam",), parallel=True, monitored=True),
+            ),
+        )
+        assert not plan_generates_mesh(plan)
+
+    def test_the_answer_comes_from_the_plan_not_the_case(self, tmp_path: Path) -> None:
+        """So it cannot disagree with what build_plan decided about the case."""
+        from foamwb.services.case import CaseService
+        from foamwb.services.newcase import create_case
+        from foamwb.services.run import build_plan
+
+        created = create_case(tmp_path, "wing")
+        case = CaseService().open(created.path)
+        assert not plan_generates_mesh(build_plan(case))
+
+        (created.path / "system" / "blockMeshDict").write_text(BLOCK_MESH_DICT)
+        assert plan_generates_mesh(build_plan(CaseService().open(created.path)))
+
+
+CONTROL_DICT = (
+    "FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }\n"
+    "application     icoFoam;\n"
+)
+
+
+@pytest.fixture
+def meshable(tmp_path: Path):
+    """A case whose plan is blockMesh → checkMesh → solve."""
+    root = tmp_path / "cavity"
+    (root / "system").mkdir(parents=True)
+    (root / "constant").mkdir()
+    (root / "0").mkdir()
+    (root / "system" / "controlDict").write_text(CONTROL_DICT)
+    (root / "system" / "blockMeshDict").write_text("scale 1;\n")
+    return CaseService().open(root)
+
+
+def _running(plan: RunPlan) -> list[str]:
+    return [stage.name for stage in plan.active_stages()]
+
+
+class TestTheUpdatePlan:
+    """DEC-22 — one verb that runs whatever is out of date, in order.
+
+    Workbench's *Update Project*, and the reason it exists: a user who edits
+    ``blockMeshDict`` should not have to work out for themselves that this means
+    meshing again *and then* solving again.
+    """
+
+    def test_a_case_with_nothing_done_runs_everything(self, meshable) -> None:
+        assert _running(build_update_plan(meshable, Freshness())) == [
+            "blockMesh",
+            "checkMesh",
+            "solve",
+        ]
+
+    def test_a_current_case_runs_nothing(self, meshable) -> None:
+        fresh = Freshness(has_mesh=True, has_results=True)
+        assert _running(build_update_plan(meshable, fresh)) == []
+
+    def test_a_stale_mesh_is_rebuilt_and_re_solved(self, meshable) -> None:
+        """Re-meshing invalidates every result, so the solve follows it."""
+        stale = Freshness(
+            has_mesh=True, has_results=True, mesh_stale_because="system/blockMeshDict"
+        )
+        assert _running(build_update_plan(meshable, stale)) == ["blockMesh", "checkMesh", "solve"]
+
+    def test_a_stale_result_re_solves_without_re_meshing(self, meshable) -> None:
+        """The point of the whole exercise: not rebuilding a mesh that is fine."""
+        stale = Freshness(has_mesh=True, has_results=True, results_stale_because="0/U")
+        assert _running(build_update_plan(meshable, stale)) == ["checkMesh", "solve"]
+
+    def test_a_meshed_case_that_has_never_run_only_solves(self, meshable) -> None:
+        assert _running(build_update_plan(meshable, Freshness(has_mesh=True))) == [
+            "checkMesh",
+            "solve",
+        ]
+
+    def test_a_skipped_stage_is_shown_rather_than_dropped(self, meshable) -> None:
+        """FR-S1 — the plan the user reviewed is the plan they watch.
+
+        "blockMesh: skipped" says the mesh is current; its absence says nothing.
+        """
+        stale = Freshness(has_mesh=True, has_results=True, results_stale_because="0/U")
+        states = build_update_plan(meshable, stale).stage_states()
+        assert states["blockMesh"] is StageState.SKIPPED
+        assert states["solve"] is StageState.PENDING
+
+    def test_the_full_plan_is_unaffected(self, meshable) -> None:
+        """*Calculate* still means the whole thing; the two verbs are distinct."""
+        from foamwb.services.run import build_plan
+
+        fresh = Freshness(has_mesh=True, has_results=True)
+        build_update_plan(meshable, fresh)
+        assert _running(build_plan(meshable)) == ["blockMesh", "checkMesh", "solve"]
+
+    def test_an_existing_condition_is_kept_rather_than_replaced(self, meshable) -> None:
+        """``decomposePar`` already carries "only in parallel"; dropping that
+        would put an MPI stage into a serial run."""
+        plan = build_update_plan(meshable, Freshness(), n_procs=2)
+        assert "decomposePar" in _running(plan)
+        serial = build_update_plan(meshable, Freshness(), n_procs=1)
+        assert "decomposePar" not in [s.name for s in serial.stages]
+
+    def test_a_case_with_no_solver_still_refuses(self, tmp_path) -> None:
+        root = tmp_path / "nameless"
+        (root / "system").mkdir(parents=True)
+        (root / "system" / "controlDict").write_text("FoamFile { object controlDict; }\n")
+        with pytest.raises(ValueError):
+            build_update_plan(CaseService().open(root), Freshness())

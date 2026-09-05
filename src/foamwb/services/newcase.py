@@ -156,6 +156,45 @@ wallDist
 }
 """
 
+#: The fields ``_FV_SOLUTION`` solves for, written so the case it creates is
+#: internally consistent.
+#:
+#: **Without these a new case failed its own validation on the first screen.**
+#: ``fvSolution`` names ``p``, so E-C08 reported a missing ``0/p`` — correctly,
+#: and with no remedy: nothing in this application creates a field file, so the
+#: panel was stating a blocking error the user had no action for. §7.9 rule 1
+#: says every error state offers at least one action, and that one offered none.
+#:
+#: **The boundary field is left empty on purpose.** Patch names do not exist
+#: until a mesh does, so any entry here would be a guess at names that are not
+#: yet real. Empty is the honest starting point and it is not a dead end: once
+#: the mesh exists the boundary-condition matrix lists every patch with nothing
+#: set, which is a step in the workflow with an editor behind it.
+#:
+#: Dimensions are the incompressible ones, matching :data:`DEFAULT_APPLICATION`
+#: — kinematic pressure in m²/s², velocity in m/s. A compressible solver needs
+#: different ones, which is a decision for the point where the user changes the
+#: application rather than a reason to write no field at all.
+_FIELD_P = """\
+dimensions      [0 2 -2 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+}
+"""
+
+_FIELD_U = """\
+dimensions      [0 1 -1 0 0 0 0];
+
+internalField   uniform (0 0 0);
+
+boundaryField
+{
+}
+"""
+
 _FV_SOLUTION = """\
 solvers
 {
@@ -233,6 +272,8 @@ def create_case(
         ),
         Path("system") / "fvSchemes": dictionary("fvSchemes", _FV_SCHEMES),
         Path("system") / "fvSolution": dictionary("fvSolution", _FV_SOLUTION),
+        Path("0") / "p": dictionary("p", _FIELD_P, class_name="volScalarField"),
+        Path("0") / "U": dictionary("U", _FIELD_U, class_name="volVectorField"),
     }
 
     try:

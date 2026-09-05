@@ -1,20 +1,32 @@
-"""The Preprocessor view (§7.4).
+"""The case's editors, built and wired but not laid out (§7.4, DEC-21).
 
-Three regions, as specified: the real case file tree on the left, tabbed editors
-in the centre — a Form tab and a Text tab, **always both** (DEC-07) — and the
-live validation panel on the right.
+Everything a user can change about a case lives here: the settings table, the
+file tree and its two editors, the geometry panel, the meshing utilities, the
+boundary matrix and the initial conditions. What is new is that this class does
+**not arrange them**. It builds them, keeps them agreeing with the case on
+disk, and hands them out; the shell decides which are task pages beside the
+outline and which are documents in the graphics window.
 
-"Always both" is the whole reason forms are safe here. Forms serve P1 and P2; the
-text tab keeps the P4 constraint that a power user is never trapped. Round-trip
-fidelity (FR-P7) is what lets the two coexist without the form quietly reformatting
-what the text tab shows.
+That split is the whole point of the Fluent-shaped shell. A narrow form and a
+wide table want opposite amounts of room, and the previous three-region view
+gave them the same room because they were tabs of one widget. Here the boundary
+matrix gets the graphics window and the geometry controls get the task page,
+without either of them knowing where it ended up.
 
-The tree lists **real filenames**. A user told their case contains
+Two promises the arrangement must not lose:
+
+**The Form and Text tabs are always both there** (DEC-07). Forms serve P1 and
+P2; the text tab keeps the P4 constraint that a power user is never trapped.
+Round-trip fidelity (FR-P7) is what lets the two coexist without the form
+quietly reformatting what the text tab shows.
+
+**The tree lists real filenames.** A user told their case contains
 ``system/controlDict`` must find that file on disk under that name, or the
 application has taught them something false about their own case.
 
-Every save goes through the service layer and re-validates. A panel that could
-drift from the files beside it would be worse than no panel: it would be believed.
+Every save goes through the service layer and re-validates, and the result is
+emitted rather than displayed — the Messages tab of the console dock is the one
+place findings appear, so they cannot be shown twice and disagree.
 """
 
 from __future__ import annotations
@@ -23,49 +35,75 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
     QSplitter,
     QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
-    QVBoxLayout,
     QWidget,
 )
 
-from foamwb.services.case import Case, CaseService, Finding
+from foamwb.services.case import Case, CaseService
 from foamwb.services.foamdict import Document, ParseError
 from foamwb.services.schema import load_schema
-from foamwb.services.validation import validate_case
+from foamwb.services.validation import Validation, validate_case
 from foamwb.ui.theme import Palette
+from foamwb.ui.views.initial import InitialConditionsView
 from foamwb.ui.widgets.bc_matrix import BoundaryMatrixView
 from foamwb.ui.widgets.form_editor import FormEditor
 from foamwb.ui.widgets.geometry_panel import GeometryPanel
+from foamwb.ui.widgets.log_pane import LogPane
 from foamwb.ui.widgets.mesh_panel import MeshPanel
+from foamwb.ui.widgets.property_panel import PropertyPanel
+from foamwb.ui.widgets.surface_preview import SurfacePreview
 from foamwb.ui.widgets.text_editor import TextEditor
 
-__all__ = ["PreprocessorView"]
+__all__ = ["CaseEditors"]
 
-#: The narrowest the file tree, the editors and the validation panel may become,
-#: in pixels. Sized to what each has to show rather than shared out evenly: the
-#: tree needs to spell out a path, the editors hold the form, and the validation
-#: column only ever carries wrapping text.
-_PANE_MINIMUMS = (180, 400, 190)
+#: The Form tab's index within the Form/Text pair (DEC-07). A constant because
+#: the pair has exactly two members and always will: they are two views of one
+#: dictionary, not a list anything else is added to.
+_FORM_TAB = 0
+
+#: The narrowest the file tree may become before it starts eliding its own
+#: contents — ``polyMesh/boundary``, the one entry whose name says which
+#: directory it came from, renders as ``polyMesh/…`` and stops distinguishing
+#: itself from the file above it.
+_TREE_MINIMUM = 180
 
 
-class PreprocessorView(QWidget):
-    """Edit a case's dictionaries, with validation beside them."""
+class CaseEditors(QWidget):
+    """Owns the editors for one case and keeps them true to disk.
+
+    A ``QWidget`` rather than a plain object because it owns child widgets and
+    emits signals, but it is never shown: the shell takes its children and
+    places them. Parenting them here is what keeps them alive and what makes
+    one ``shutdown()`` reach all of them.
+    """
 
     case_changed = Signal()
     """A dictionary was written, so anything downstream should re-read."""
+
+    validated = Signal(object)
+    """A :class:`~foamwb.services.validation.Validation`, or ``None`` for no case."""
+
+    file_opened = Signal(Path)
 
     def __init__(
         self,
         palette: Palette,
         labels: dict[str, str],
         parent: QWidget | None = None,
+        *,
+        log: LogPane | None = None,
     ) -> None:
+        """``log`` is the window's console, when the window has one.
+
+        A meshing utility's output is the same kind of thing as a solver's, and
+        the user reads one stream of what the application did on their behalf —
+        so in the shell it goes to the console dock rather than into a second
+        log pane inside a 380-pixel column. Defaults to a private one so the
+        editors still construct whole in a test.
+        """
         super().__init__(parent)
         self._palette = palette
         self._labels = labels
@@ -74,89 +112,65 @@ class PreprocessorView(QWidget):
         self._session = None
         self._current: Path | None = None
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
+        # The picture belongs to the graphics window, so it is built here and
+        # handed over rather than built inside the geometry panel: the panel's
+        # naming controls point at the same object the user is clicking on.
+        self.preview = SurfacePreview(palette, labels)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(self._build_tree(labels))
-        splitter.addWidget(self._build_editors(labels))
-        splitter.addWidget(self._build_validation(labels))
-        splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 5)
-        splitter.setStretchFactor(2, 2)
-        # Without a floor the file tree is handed whatever is left over and
-        # elides its own contents — ``polyMesh/boundary``, the one entry whose
-        # name says which directory it came from, renders as ``polyMesh/…`` and
-        # stops distinguishing itself from the file above it.
-        for index, minimum in enumerate(_PANE_MINIMUMS):
-            splitter.widget(index).setMinimumWidth(minimum)
-        splitter.setChildrenCollapsible(False)
-        layout.addWidget(splitter, stretch=1)
+        self.properties = PropertyPanel(palette, labels)
 
-        self._show_no_case()
+        self.geometry = GeometryPanel(palette, labels, preview=self.preview, embed_sizing=False)
+        self.geometry.geometry_changed.connect(self._on_geometry_changed)
+        self.sizing = self.geometry.sizing_section
+        self.sizing.setParent(self)
+
+        self.mesh = MeshPanel(palette, labels, log=log)
+        # A utility that rewrote the mesh invalidates everything derived from it:
+        # the patch list, the matrix and the findings are all about the old one.
+        self.mesh.mesh_changed.connect(self._on_mesh_changed)
+
+        # The two halves of "what values does this case start from and hold at
+        # its edges": initial conditions are the interior, boundary conditions
+        # the edge. It is the disagreement between them that is usually wrong.
+        self.matrix = BoundaryMatrixView(palette, labels)
+        self.matrix.apply_requested.connect(self._apply_bulk)
+
+        self.initial = InitialConditionsView(palette, labels)
+
+        self.files = self._build_file_document(labels)
+        self.files.setParent(self)
 
     # -- construction ------------------------------------------------------
 
-    def _build_tree(self, labels: dict[str, str]) -> QWidget:
+    def _build_file_document(self, labels: dict[str, str]) -> QWidget:
+        """The case's files, with the selected one open in both editors.
+
+        Wide by nature — a dictionary is 80 columns of text beside a tree of
+        paths — so this is a graphics-window document rather than a task page.
+        """
+        page = QSplitter(Qt.Orientation.Horizontal)
+
         self._tree = QTreeWidget()
         self._tree.setHeaderLabel(labels["case_files"])
         self._tree.setAccessibleName(labels["case_files"])
         self._tree.currentItemChanged.connect(self._on_file_selected)
-        return self._tree
+        page.addWidget(self._tree)
 
-    def _build_editors(self, labels: dict[str, str]) -> QWidget:
-        self._tabs = QTabWidget()
+        self._editors = QTabWidget()
+        self.form = FormEditor(self._palette, labels)
+        self.form.saved.connect(self._on_saved)
+        self._editors.addTab(self.form, labels["form_tab"])
 
-        self._form = FormEditor(self._palette, labels)
-        self._form.saved.connect(self._on_saved)
-        self._tabs.addTab(self._form, labels["form_tab"])
+        self.text = TextEditor(self._palette, labels)
+        self.text.saved.connect(self._on_saved)
+        self._editors.addTab(self.text, labels["text_tab"])
 
-        self._text = TextEditor(self._palette, labels)
-        self._text.saved.connect(self._on_saved)
-        self._tabs.addTab(self._text, labels["text_tab"])
-
-        self._matrix = BoundaryMatrixView(self._palette, labels)
-        self._matrix.apply_requested.connect(self._apply_bulk)
-        self._tabs.addTab(self._matrix, labels["bc_tab"])
-
-        # Before meshing, because that is the order the work happens in: a case
-        # built from a CAD model has geometry imported into it and is then meshed
-        # around that geometry (FR-P3).
-        self._geometry = GeometryPanel(self._palette, labels)
-        # New geometry does not change the mesh, but it does change what the next
-        # mesh will be built from — so the utilities are re-offered rather than
-        # left describing the case as it was.
-        self._geometry.geometry_changed.connect(self._on_geometry_changed)
-        self._tabs.addTab(self._geometry, labels["geometry_tab"])
-
-        self._mesh = MeshPanel(self._palette, labels)
-        # A utility that rewrote the mesh invalidates everything derived from it:
-        # the patch list, the matrix and the findings are all about the old one.
-        self._mesh.mesh_changed.connect(self._on_mesh_changed)
-        self._tabs.addTab(self._mesh, labels["mesh_tab"])
-        return self._tabs
-
-    def _build_validation(self, labels: dict[str, str]) -> QWidget:
-        panel = QWidget()
-        column = QVBoxLayout(panel)
-        column.setContentsMargins(0, 0, 0, 0)
-        column.setSpacing(6)
-
-        heading = QLabel(labels["validation"])
-        heading.setProperty("role", "subheading")
-        column.addWidget(heading)
-
-        self._summary = QLabel()
-        self._summary.setWordWrap(True)
-        column.addWidget(self._summary)
-
-        self._findings = QListWidget()
-        self._findings.setAccessibleName(labels["validation"])
-        self._findings.setWordWrap(True)
-        self._findings.itemActivated.connect(self._on_finding_activated)
-        column.addWidget(self._findings, stretch=1)
-        return panel
+        page.addWidget(self._editors)
+        page.setStretchFactor(0, 2)
+        page.setStretchFactor(1, 5)
+        page.widget(0).setMinimumWidth(_TREE_MINIMUM)
+        page.setChildrenCollapsible(False)
+        return page
 
     # -- content -----------------------------------------------------------
 
@@ -170,6 +184,28 @@ class PreprocessorView(QWidget):
         self._session = session
         if self._case is not None:
             self._refresh_mesh_context()
+
+    def set_case(self, case: Case) -> None:
+        """Load a case: populate the tree, select something, validate."""
+        self._case = case
+        self._populate_tree(case)
+        self.geometry.set_case(case.path)
+        self.initial.set_case(case.path)
+        self.refresh_validation()
+        self._refresh_mesh_context()
+        self._select_first_editable()
+
+    def clear_case(self) -> None:
+        self._case = None
+        self._current = None
+        self._tree.clear()
+        self.geometry.set_case(None)
+        self.initial.set_case(None)
+        self.validated.emit(None)
+
+    def set_property_groups(self, groups) -> None:
+        """Fill the settings page with what the selected node owns."""
+        self.properties.set_groups(groups)
 
     def _populate_tree(self, case: Case) -> None:
         """Fill the file tree from what is on disk right now."""
@@ -187,21 +223,12 @@ class PreprocessorView(QWidget):
             leaf.setData(0, Qt.ItemDataRole.UserRole, path)
             groups[group].addChild(leaf)
 
-    def set_case(self, case: Case) -> None:
-        """Load a case: populate the tree, select something, validate."""
-        self._case = case
-        self._populate_tree(case)
-        self._geometry.set_case(case.path)
-        self.refresh_validation()
-        self._refresh_mesh_context()
-        self._select_first_editable()
-
     def _refresh_mesh_context(self) -> None:
         if self._case is None:
             return
         from foamwb.services.boundary import read_boundary
 
-        self._mesh.set_context(
+        self.mesh.set_context(
             self._session, self._case.path, meshed=bool(read_boundary(self._case.path))
         )
 
@@ -306,8 +333,8 @@ class PreprocessorView(QWidget):
         # NFR-R3: tell the editor which file this buffer belongs to, so an
         # unsaved edit survives a crash. Set before the content, so the first
         # change is already attributable.
-        self._text.set_journal_target(*self._journal_target_for(path))
-        self._text.set_content(data)
+        self.text.set_journal_target(*self._journal_target_for(path))
+        self.text.set_content(data)
 
         schema = load_schema(path.name)
         document: Document | None = None
@@ -318,13 +345,21 @@ class PreprocessorView(QWidget):
                 document = None
 
         if schema is not None and document is not None:
-            self._form.set_document(schema, document)
-            self._tabs.setTabEnabled(0, True)
-            self._tabs.setTabText(0, self._labels["form_tab"])
+            self.form.set_document(schema, document)
+            self._editors.setTabEnabled(_FORM_TAB, True)
+            self._editors.setTabText(_FORM_TAB, self._labels["form_tab"])
         else:
-            self._tabs.setTabEnabled(0, False)
-            self._tabs.setCurrentWidget(self._text)
-            self._tabs.setTabText(0, self._labels["form_tab_unavailable"])
+            self._editors.setTabEnabled(_FORM_TAB, False)
+            self._editors.setCurrentWidget(self.text)
+            self._editors.setTabText(_FORM_TAB, self._labels["form_tab_unavailable"])
+        self.file_opened.emit(path)
+
+    def show_line(self, path: Path, line: int | None, column: int | None) -> None:
+        """Open a file at a line — what activating a finding does."""
+        self.open_file(path)
+        self._editors.setCurrentWidget(self.text)
+        if line is not None:
+            self.text._go_to(line, column or 1)
 
     # -- saving ------------------------------------------------------------
 
@@ -376,121 +411,64 @@ class PreprocessorView(QWidget):
 
     # -- validation --------------------------------------------------------
 
-    def refresh_validation(self) -> None:
-        """Re-run validation and repopulate the panel (FR-C3)."""
-        self._findings.clear()
-        # An empty findings list is an empty bordered box a third of the panel
-        # tall, which reads as something that failed to load rather than as a
-        # case with nothing wrong with it. The summary line already carries the
-        # verdict, so the list only appears when it has something to list.
-        self._findings.setVisible(False)
+    def refresh_validation(self) -> Validation | None:
+        """Re-run validation, update the matrix, and publish the findings (FR-C3)."""
         if self._case is None:
-            return
+            self.validated.emit(None)
+            return None
 
         validation = validate_case(self._case)
-        self._matrix.set_matrix(validation.matrix)
+        self.matrix.set_matrix(validation.matrix)
+        self.validated.emit(validation)
+        return validation
 
-        if not validation.findings:
-            self._summary.setText(self._labels["no_findings"])
-            self._summary.setStyleSheet(f"color: {self._palette.ready};")
-            return
-
-        self._findings.setVisible(True)
-
-        blocking = len(validation.blocking)
-        self._summary.setText(
-            self._labels["findings_summary"].format(len(validation.findings), blocking)
-        )
-        self._summary.setStyleSheet(
-            f"color: {self._palette.broken if blocking else self._palette.degraded};"
-        )
-
-        for finding in validation.findings:
-            item = QListWidgetItem(self._describe(finding))
-            item.setData(Qt.ItemDataRole.UserRole, finding)
-            item.setForeground(
-                _brush(self._palette.broken if finding.blocks_run else self._palette.degraded)
-            )
-            self._findings.addItem(item)
-
-    def _describe(self, finding: Finding) -> str:
-        where = finding.file.name
-        if finding.line is not None:
-            where = self._labels["finding_at_line"].format(where, finding.line)
-        return self._labels["finding"].format(finding.code.id, where, finding.detail)
-
-    @Slot(QListWidgetItem)
-    def _on_finding_activated(self, item: QListWidgetItem) -> None:
-        """Open the offending file and, where known, the offending line (§7.4)."""
-        finding = item.data(Qt.ItemDataRole.UserRole)
-        if not isinstance(finding, Finding) or not finding.file.is_file():
-            return
-        self.open_file(finding.file)
-        self._tabs.setCurrentWidget(self._text)
-        if finding.line is not None:
-            self._text._go_to(finding.line, finding.column or 1)
-
-    def _show_no_case(self) -> None:
-        self._summary.setText(self._labels["no_case_open_hint"])
-        self._summary.setStyleSheet(f"color: {self._palette.text_muted};")
+    # -- appearance --------------------------------------------------------
 
     def set_palette(self, palette: Palette) -> None:
-        """Adopt a new palette across the tabs and the validation panel (NFR-A4).
+        """Adopt a new palette across every editor (NFR-A4).
 
-        The panel is re-derived from the case rather than recoloured item by
-        item, because its colours *mean* something — red is a finding that blocks
-        the run — and re-running validation is the only way to be certain the
-        colours and the findings still agree. It costs a re-parse of the case,
-        which is a price worth paying at the rate a person changes theme.
+        Validation is re-run rather than the findings recoloured, because their
+        colours *mean* something — red is a finding that blocks the run — and
+        re-running is the only way to be certain the colours and the findings
+        still agree. It costs a re-parse of the case, which is a price worth
+        paying at the rate a person changes theme.
         """
         self._palette = palette
-        self._form.set_palette(palette)
-        self._text.set_palette(palette)
-        self._matrix.set_palette(palette)
-        self._mesh.set_palette(palette)
-        self._geometry.set_palette(palette)
+        for widget in (
+            self.form,
+            self.text,
+            self.matrix,
+            self.mesh,
+            self.geometry,
+            self.initial,
+            self.properties,
+            self.preview,
+        ):
+            widget.set_palette(palette)
+        self.refresh_validation()
 
-        if self._case is None:
-            self._show_no_case()
-        else:
-            self.refresh_validation()
+    # -- lifecycle ---------------------------------------------------------
+
+    def shutdown(self) -> None:
+        self.mesh.shutdown()
 
     # -- for tests ---------------------------------------------------------
 
     @property
-    def form(self) -> FormEditor:
-        return self._form
-
-    @property
-    def text(self) -> TextEditor:
-        return self._text
-
-    @property
-    def matrix(self) -> BoundaryMatrixView:
-        return self._matrix
-
-    @property
-    def mesh(self) -> MeshPanel:
-        return self._mesh
-
-    def shutdown(self) -> None:
-        self._mesh.shutdown()
+    def case(self) -> Case | None:
+        return self._case
 
     @property
     def current_file(self) -> Path | None:
         return self._current
 
     @property
-    def finding_count(self) -> int:
-        return self._findings.count()
-
-    @property
-    def summary_text(self) -> str:
-        return self._summary.text()
-
-    @property
     def form_available(self) -> bool:
-        return self._tabs.isTabEnabled(0)
+        return self._editors.isTabEnabled(_FORM_TAB)
+
+    @property
+    def editors(self) -> QTabWidget:
+        return self._editors
 
     @property
     def tree_files(self) -> list[Path]:
@@ -502,12 +480,3 @@ class PreprocessorView(QWidget):
                 if path is not None:
                     found.append(Path(path))
         return found
-
-    def activate_finding(self, index: int) -> None:
-        self._on_finding_activated(self._findings.item(index))
-
-
-def _brush(colour: str):
-    from PySide6.QtGui import QBrush, QColor
-
-    return QBrush(QColor(colour))

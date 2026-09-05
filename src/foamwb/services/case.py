@@ -47,6 +47,7 @@ __all__ = [
     "CaseService",
     "Finding",
     "RunRecord",
+    "is_definition_file",
 ]
 
 _log = get_logger("case")
@@ -279,8 +280,17 @@ def _write_atomically(target: Path, data: bytes) -> None:
     temporary.replace(target)
 
 
-def _is_definition_file(case: Path, path: Path) -> bool:
-    """Whether a file is part of the case definition and so contributes to the hash."""
+def is_definition_file(case: Path, path: Path) -> bool:
+    """Whether a file is part of the case definition.
+
+    Public because two things need the same answer and must not disagree about
+    it: :meth:`CaseService.tree_hash`, which decides whether a case changed
+    outside the application (FR-C4), and :mod:`foamwb.services.freshness`, which
+    decides whether a result is older than the case it came from (DEC-22). Two
+    private opinions about what a case *is* would eventually differ, and the
+    symptom would be a stale marker that appeared or vanished for no reason the
+    user could see.
+    """
     try:
         relative = path.relative_to(case)
     except ValueError:  # pragma: no cover - callers pass descendants
@@ -416,7 +426,7 @@ class CaseService:
         """
         digest = hashlib.sha256()
         for file in sorted(p for p in path.rglob("*") if p.is_file()):
-            if not _is_definition_file(path, file):
+            if not is_definition_file(path, file):
                 continue
             digest.update(file.relative_to(path).as_posix().encode("utf-8"))
             digest.update(b"\0")

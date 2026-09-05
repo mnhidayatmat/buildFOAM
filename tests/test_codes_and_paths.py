@@ -89,6 +89,27 @@ class TestPaths:
         assert "\\" not in str(paths.runtime_content_subpath())
         assert str(paths.runtime_content_subpath()).endswith("/content")
 
+    def test_the_desktop_is_where_a_new_case_is_offered(self, monkeypatch, tmp_path) -> None:
+        # Not the last-used folder or the home directory: a case is a folder the
+        # user has to find again outside the application.
+        monkeypatch.setattr(paths.Path, "home", staticmethod(lambda: tmp_path))
+        monkeypatch.delenv("XDG_DESKTOP_DIR", raising=False)
+        (tmp_path / "Desktop").mkdir()
+        assert paths.desktop_dir() == tmp_path / "Desktop"
+
+    def test_a_missing_desktop_falls_back_to_home(self, monkeypatch, tmp_path) -> None:
+        # A dialog that opens somewhere beats one that opens on a path that is
+        # not there.
+        monkeypatch.setattr(paths.Path, "home", staticmethod(lambda: tmp_path))
+        monkeypatch.delenv("XDG_DESKTOP_DIR", raising=False)
+        assert paths.desktop_dir() == tmp_path
+
+    def test_an_xdg_desktop_wins_where_it_is_set(self, monkeypatch, tmp_path) -> None:
+        elsewhere = tmp_path / "Skrivebord"
+        elsewhere.mkdir()
+        monkeypatch.setenv("XDG_DESKTOP_DIR", str(elsewhere))
+        assert paths.desktop_dir() == elsewhere
+
     def test_no_path_segment_is_empty(self) -> None:
         for part in paths.log_dir().parts:
             assert part.strip()

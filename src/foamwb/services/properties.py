@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from foamwb.services.foamdict import Document, ParseError
+from foamwb.services.runtime.manifest import load_manifest
 from foamwb.services.schema import Schema, load_schema
 
 #: Not settings. ``FoamFile`` is the format header every dictionary carries —
@@ -32,6 +33,7 @@ __all__ = [
     "STEP_SOURCES",
     "PropertyGroup",
     "PropertyRow",
+    "Source",
     "groups_for_step",
     "rows_from_document",
 ]
@@ -68,19 +70,77 @@ class PropertyGroup:
     an empty group and an absent file mean different things to the user."""
 
 
-#: Which files each workflow step is about. The step names are the ones a course
-#: uses; the files are the ones OpenFOAM has. Keeping the mapping here — as data,
-#: in one place — is what lets the navigation be renamed without hunting through
-#: widgets for hard-coded filenames.
-STEP_SOURCES: dict[str, tuple[tuple[str, str], ...]] = {
-    # step id -> ((relative path, schema name), ...)
-    "conditions.basic": (("system/controlDict", "controlDict"),),
-    "conditions.control": (
-        ("system/fvSchemes", "fvSchemes"),
-        ("system/fvSolution", "fvSolution"),
+@dataclass(frozen=True, slots=True)
+class Source:
+    """One file an outline node shows, and which part of it."""
+
+    relative: str
+    """Path within the case. A segment starting with ``@`` names a manifest
+    *role* — ``constant/@turbulence`` — resolved at read time, because the
+    lineages call that file different things and NFR-M3 forbids the name in
+    code."""
+
+    schema: str = ""
+    keys: tuple[str, ...] = ()
+    """Top-level keys this node owns; empty means the whole file.
+
+    Fluent splits ``controlDict``'s concerns across three nodes — *General*
+    holds the solver and the time span, *Calculation Activities* holds the
+    autosave, *Monitors* holds the function objects. Showing the entire file
+    under each would make three nodes look identical and teach the user that
+    the outline is decoration. The filter is by top-level key so a nested path
+    like ``functions/solverInfo`` follows its parent."""
+
+    def resolve(self) -> str:
+        release = load_manifest().default_release()
+        return "/".join(
+            release.dictionary(part[1:]) if part.startswith("@") else part
+            for part in self.relative.split("/")
+        )
+
+    def owns(self, path: str) -> bool:
+        return not self.keys or path.split("/", 1)[0] in self.keys
+
+
+#: Which files each outline node is about. The node names are Fluent's; the
+#: files are the ones OpenFOAM has. Keeping the mapping here — as data, in one
+#: place — is what lets the outline be renamed without hunting through widgets
+#: for hard-coded filenames.
+STEP_SOURCES: dict[str, tuple[Source, ...]] = {
+    "workflow.sizing": (Source("system/blockMeshDict", "blockMeshDict"),),
+    "setup.general": (
+        Source(
+            "system/controlDict",
+            "controlDict",
+            ("application", "startFrom", "startTime", "stopAt", "endTime", "deltaT"),
+        ),
     ),
-    "mesh.settings": (("system/blockMeshDict", "blockMeshDict"),),
-    "conditions.output": (("system/controlDict", "controlDict"),),
+    "setup.models": (Source("constant/@turbulence"),),
+    "setup.materials": (Source("constant/@transport"),),
+    "solution.methods": (Source("system/fvSchemes", "fvSchemes"),),
+    "solution.controls": (Source("system/fvSolution", "fvSolution"),),
+    "solution.monitors": (Source("system/controlDict", "controlDict", ("functions",)),),
+    "solution.activities": (
+        Source(
+            "system/controlDict",
+            "controlDict",
+            (
+                "writeControl",
+                "writeInterval",
+                "purgeWrite",
+                "writeFormat",
+                "writePrecision",
+                "writeCompression",
+                "timeFormat",
+                "timePrecision",
+                "runTimeModifiable",
+                "adjustTimeStep",
+                "maxCo",
+                "maxAlphaCo",
+                "maxDeltaT",
+            ),
+        ),
+    ),
 }
 
 
@@ -148,7 +208,8 @@ def groups_for_step(case: Path | None, step_id: str) -> tuple[PropertyGroup, ...
     sources = STEP_SOURCES.get(step_id, ())
     groups: list[PropertyGroup] = []
 
-    for relative, schema_name in sources:
+    for source in sources:
+        relative = source.resolve()
         path = case / relative
         title = relative.rsplit("/", 1)[-1]
 
@@ -162,13 +223,8 @@ def groups_for_step(case: Path | None, step_id: str) -> tuple[PropertyGroup, ...
             groups.append(PropertyGroup(title=title, source=relative, missing=True))
             continue
 
-        schema = load_schema(schema_name) if schema_name else None
-        groups.append(
-            PropertyGroup(
-                title=title,
-                source=relative,
-                rows=rows_from_document(document, schema),
-            )
-        )
+        schema = load_schema(source.schema) if source.schema else None
+        rows = tuple(row for row in rows_from_document(document, schema) if source.owns(row.path))
+        groups.append(PropertyGroup(title=title, source=relative, rows=rows))
 
     return tuple(groups)

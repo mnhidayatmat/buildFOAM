@@ -8,6 +8,8 @@ A PySide6 desktop application that installs, configures and drives a complete Op
 
 Milestones M0–M2 are complete: the app detects/provisions a runtime, opens a case, runs it with the log streaming, and plots residuals. M4 (preprocessor) is next.
 
+The shell follows the single-window **Ansys Fluent** (DEC-21, §7.1): ribbon, Outline View over a Task Page, a persistent tabbed graphics window, a collapsible console dock, status footer. The patterns are industry convention; none of Ansys's artwork, colour or product names is copied (§13.3) — and no screen may imply an association.
+
 ## Commands
 
 ```sh
@@ -43,12 +45,73 @@ These enforce PRD promises no type system can hold. Each has been caught doing i
 
 ## Architecture
 
+### The window is three views of one list
+
+`services/workflow.py` declares the outline as data: each node names the **task
+page** it opens and the **document** it raises. `ui/ribbon.py` declares the
+ribbon as data, and `_ACTION_STEPS` in the shell maps an action to the node it
+selects. So a ribbon button, the outline row it highlights and the document it
+brings up cannot disagree, and `test_shell.py` asserts all three directions —
+every node names a page and a document that exist, every action names a real
+node or has a handler, and nothing is handled that is offered nowhere.
+
+Adding a node is therefore: a `Step` in `STEPS`, its label and hint in
+`workflow_strings()`, a page registered in `Shell._build_task_pages`, and — if
+it edits a dictionary — a `Source` in `STEP_SOURCES`. Miss one and a test says
+which.
+
+`TaskPage.show_page` and `GraphicsWindow.show_document` are named that way on
+purpose: a `show(key)` override shadows `QWidget.show()` and turns every
+ordinary call to it into a `TypeError` somewhere unrelated.
+
+### Done is revocable
+
+`services/freshness.py` dates each of a case's two computed artefacts — the mesh
+and the results — against the inputs it came from, and `WorkflowModel` turns
+that into `StepState.STALE` (↻) with downstream propagation (DEC-22). `Update`
+(F5) then runs only the stale stages, via `build_update_plan`, which takes the
+ordinary plan and marks the current stages skipped rather than building a
+shorter one — so the strip still shows the whole run.
+
+Two traps here. **`has_mesh` means polyMesh contains a file**, not that the
+directory exists; a fixture that only `mkdir`s it is claiming a mesh nothing can
+run against. And **freshness must not import the outline**: the outline imports
+freshness, so `freshness.py` answers questions about *artefacts* and
+`workflow.py` maps those onto nodes. `run/controller.py` imports `Freshness`
+under `TYPE_CHECKING` for the same reason — a module-scope import closes a
+three-service cycle through `services/mesh.py`.
+
+### The mesh in the graphics window
+
+`services/polymesh.py` reads `constant/polyMesh`'s **boundary faces** — the
+internal ones are between two cells and nothing can see them — and returns the
+same `Sample` an STL does, so `preview.project`, the picking and the widget are
+unchanged. OpenFOAM stores boundary faces contiguously at the end of `faces`, so
+each patch's `startFace`/`nFaces` says exactly which part of the file to keep
+(DEC-23).
+
+Two rules worth keeping. **Thin within each patch, never across the flat list**:
+a global stride takes faces in proportion to their number, so a thirty-face
+inlet beside a twenty-four-thousand-face wall loses every face it has and ends
+up named in the matrix and nowhere on the model. And **refuse rather than
+stall**: past `MAX_SOURCE_BYTES` the reader returns `Unavailable.TOO_LARGE` and
+the view offers ParaView, because a preview that locks the window for a minute
+is worse than one that says no. Every `Unavailable` value needs a
+`mesh_<value>` string; a test asserts it.
+
 ### The layering is the load-bearing decision
 
 ```
 foamwb/ui/         PySide6. The only subtree allowed to import Qt.
 foamwb/services/   Pure Python. No Qt. Exercised headlessly; could back a CLI.
 ```
+
+Within `ui/`, the shell **owns the layout and nothing else**. `CaseEditors`
+builds and wires every editor without arranging any of them; `RunView`,
+`PostView` and `MeshPanel` take the window's console and residual plot rather
+than owning private copies. That is what let the whole window be re-shaped
+without touching what any editor does — and each still constructs standalone,
+which is what the widget tests rely on.
 
 Services communicate upward through plain callbacks and return values, never signals. This is why the golden-case gate can run the *same* `RunController` a user's run goes through, in a container with no Qt installed.
 

@@ -22,6 +22,7 @@ __all__ = [
     "cache_dir",
     "config_file",
     "current_platform",
+    "desktop_dir",
     "log_dir",
     "macos_cases_dir",
     "macos_content_dir",
@@ -99,6 +100,29 @@ def log_dir() -> Path:
     if current_platform() == Platform.WINDOWS:
         return _local_data_dir() / "logs"
     return Path.home() / "Library" / "Logs" / USER_DATA_DIR_NAME
+
+
+def desktop_dir() -> Path:
+    """Where a "where shall I put this?" dialog should open.
+
+    The desktop rather than the last-used folder or the home directory, because
+    a case is a folder the user is expected to find again outside the
+    application — and the desktop is the one place every user of this product
+    can already locate without being told a path.
+
+    Localised desktop names are a display convention, not a filesystem one: the
+    directory is ``Desktop`` on disk on Windows and macOS whatever the interface
+    language says. Linux is the exception, so ``XDG_DESKTOP_DIR`` wins where it
+    is set. Home is the fallback, because a dialog that opens somewhere is
+    better than one that opens on a path that does not exist.
+    """
+    configured = os.environ.get("XDG_DESKTOP_DIR")
+    if configured:
+        candidate = Path(configured).expanduser()
+        if candidate.is_dir():
+            return candidate
+    desktop = Path.home() / "Desktop"
+    return desktop if desktop.is_dir() else Path.home()
 
 
 def cache_dir() -> Path:

@@ -430,10 +430,38 @@ class TestCreateCase:
         for directory in ("system", "constant", "0"):
             assert (created.path / directory).is_dir()
 
-    def test_does_not_invent_initial_conditions(self, tmp_path: Path) -> None:
-        """Which fields a case needs depends on a mesh that does not exist yet."""
+    def test_writes_the_fields_its_own_solution_dict_solves_for(self, tmp_path: Path) -> None:
+        """Reverses "does not invent initial conditions", which conflated two things.
+
+        *Which fields exist* is not a guess: the skeleton picks the solver and
+        writes an ``fvSolution`` that names ``p``, so a missing ``0/p`` is the
+        template contradicting itself. *What values they hold at the boundary*
+        is the part that genuinely needs a mesh, and that is still left alone.
+        """
         created = create_case(tmp_path, "wing")
-        assert list((created.path / "0").iterdir()) == []
+        assert sorted(p.name for p in (created.path / "0").iterdir()) == ["U", "p"]
+
+    def test_does_not_invent_boundary_conditions(self, tmp_path: Path) -> None:
+        """Patch names do not exist until a mesh does, so there is nothing to key on."""
+        from foamwb.services.foamdict import Document
+
+        created = create_case(tmp_path, "wing")
+        document = Document.parse_bytes((created.path / "0" / "p").read_bytes())
+        assert document.keys("boundaryField") == []
+
+    def test_a_new_case_passes_its_own_validation(self, tmp_path: Path) -> None:
+        """It reported E-C08 on the first screen, with no action anywhere that fixed it.
+
+        Nothing in this application creates a field file, so the panel was
+        stating a run-blocking error the user could not act on — the dead end
+        §7.9 rule 1 forbids.
+        """
+        from foamwb.services.case import CaseService
+        from foamwb.services.validation import validate_case
+
+        created = create_case(tmp_path, "wing")
+        report = validate_case(CaseService().open(created.path))
+        assert report.findings == []
 
     def test_refuses_to_write_into_an_occupied_folder(self, tmp_path: Path) -> None:
         (tmp_path / "wing").mkdir()
