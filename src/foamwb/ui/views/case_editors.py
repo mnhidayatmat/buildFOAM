@@ -151,6 +151,7 @@ class CaseEditors(QWidget):
         page = QSplitter(Qt.Orientation.Horizontal)
 
         self._tree = QTreeWidget()
+        self._tree.setObjectName("caseFileTree")
         self._tree.setHeaderLabel(labels["case_files"])
         self._tree.setAccessibleName(labels["case_files"])
         self._tree.currentItemChanged.connect(self._on_file_selected)

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QHeaderView,
     QLabel,
     QTreeWidget,
     QTreeWidgetItem,
@@ -133,6 +134,7 @@ class PropertyPanel(QWidget):
         self._tree.blockSignals(False)
         for column in range(3):
             self._tree.resizeColumnToContents(column)
+        self._fit_columns()
 
         self._description.setText("" if groups else self._labels["no_properties"])
 
@@ -164,6 +166,21 @@ class PropertyPanel(QWidget):
         return None
 
     # -- appearance --------------------------------------------------------
+
+    def _fit_columns(self) -> None:
+        """Give the slack to Value, and never let Unit fall off the edge.
+
+        Sizing all three to their contents overflowed a 380-pixel task page, so
+        the panel grew a horizontal scroll bar and clipped the Unit column —
+        which is the one §7.4 says must always be visible, because an omitted
+        dimension is exactly what a user gets wrong.
+        """
+        header = self._tree.header()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(False)
+        self._tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
     def set_palette(self, palette: Palette) -> None:
         self._palette = palette

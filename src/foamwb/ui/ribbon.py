@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from foamwb.ui.icons import glyph_icon
+from foamwb.ui.icons import vector_icon
 from foamwb.ui.theme import Palette
 
 __all__ = ["FILE_MENU", "RIBBON_TABS", "Ribbon", "RibbonAction", "RibbonGroup", "RibbonTab"]
@@ -51,7 +51,11 @@ class RibbonAction:
     key: str
     """Stable identifier, emitted when pressed. Never shown, so not translated."""
 
-    glyph: str
+    icon: str
+    """Name of a drawing in :mod:`foamwb.ui.icons`. Checked by a test, so an
+    action naming one that does not exist fails the build rather than shipping
+    a blank button."""
+
     shortcut: str = ""
 
 
@@ -96,45 +100,51 @@ RIBBON_TABS: tuple[RibbonTab, ...] = (
         (
             RibbonGroup(
                 "mesh",
-                (RibbonAction("check_mesh", "✓"), RibbonAction("display_mesh", "▦", "Ctrl+M")),
+                (
+                    RibbonAction("check_mesh", "check"),
+                    RibbonAction("display_mesh", "grid", "Ctrl+M"),
+                ),
             ),
             RibbonGroup(
                 "geometry",
-                (RibbonAction("import_geometry", "⤓"), RibbonAction("describe_geometry", "◐")),
+                (
+                    RibbonAction("import_geometry", "import"),
+                    RibbonAction("describe_geometry", "inward"),
+                ),
             ),
-            RibbonGroup("sizing", (RibbonAction("local_sizing", "⊞"),)),
-            RibbonGroup("zones", (RibbonAction("update_boundaries", "▭"),)),
-            RibbonGroup("generate", (RibbonAction("volume_mesh", "⬢", "Ctrl+G"),)),
+            RibbonGroup("sizing", (RibbonAction("local_sizing", "sizing"),)),
+            RibbonGroup("zones", (RibbonAction("update_boundaries", "boundary"),)),
+            RibbonGroup("generate", (RibbonAction("volume_mesh", "cube", "Ctrl+G"),)),
         ),
     ),
     RibbonTab(
         "physics",
         (
-            RibbonGroup("solver", (RibbonAction("general", "⚙"),)),
-            RibbonGroup("models", (RibbonAction("models", "∿"),)),
-            RibbonGroup("materials", (RibbonAction("materials", "◍"),)),
-            RibbonGroup("zones", (RibbonAction("boundary_conditions", "▤"),)),
-            RibbonGroup("reference", (RibbonAction("reference_values", "≡"),)),
+            RibbonGroup("solver", (RibbonAction("general", "gear"),)),
+            RibbonGroup("models", (RibbonAction("models", "wave"),)),
+            RibbonGroup("materials", (RibbonAction("materials", "layers"),)),
+            RibbonGroup("zones", (RibbonAction("boundary_conditions", "table"),)),
+            RibbonGroup("reference", (RibbonAction("reference_values", "lines"),)),
         ),
     ),
     RibbonTab(
         "solution",
         (
-            RibbonGroup("methods", (RibbonAction("methods", "∂"),)),
-            RibbonGroup("controls", (RibbonAction("controls", "⇅"),)),
-            RibbonGroup("monitors", (RibbonAction("monitors", "◉"),)),
-            RibbonGroup("initialization", (RibbonAction("initialization", "⟲"),)),
-            RibbonGroup("activities", (RibbonAction("activities", "⏱"),)),
+            RibbonGroup("methods", (RibbonAction("methods", "curve"),)),
+            RibbonGroup("controls", (RibbonAction("controls", "sliders"),)),
+            RibbonGroup("monitors", (RibbonAction("monitors", "target"),)),
+            RibbonGroup("initialization", (RibbonAction("initialization", "seed"),)),
+            RibbonGroup("activities", (RibbonAction("activities", "clock"),)),
             RibbonGroup(
                 "run",
                 (
-                    RibbonAction("check_case", "☑", "Ctrl+K"),
+                    RibbonAction("check_case", "clipboard", "Ctrl+K"),
                     # F5 is the chord Workbench users already have for *Update
                     # Project*, and it is the one action here that answers "make
                     # this case true again" rather than "run this stage".
-                    RibbonAction("update", "↻", "F5"),
-                    RibbonAction("calculate", "▶", "Ctrl+R"),
-                    RibbonAction("stop_write", "■", "Ctrl+."),
+                    RibbonAction("update", "refresh", "F5"),
+                    RibbonAction("calculate", "play", "Ctrl+R"),
+                    RibbonAction("stop_write", "stop", "Ctrl+."),
                 ),
             ),
         ),
@@ -142,30 +152,32 @@ RIBBON_TABS: tuple[RibbonTab, ...] = (
     RibbonTab(
         "results",
         (
-            RibbonGroup("graphics", (RibbonAction("graphics", "▦"), RibbonAction("paraview", "◈"))),
-            RibbonGroup("plots", (RibbonAction("residuals", "∿", "Ctrl+Shift+R"),)),
-            RibbonGroup("reports", (RibbonAction("reports", "▤"),)),
-            RibbonGroup("export", (RibbonAction("export_csv", "⇩"),)),
+            RibbonGroup(
+                "graphics", (RibbonAction("graphics", "grid"), RibbonAction("paraview", "diamond"))
+            ),
+            RibbonGroup("plots", (RibbonAction("residuals", "chart", "Ctrl+Shift+R"),)),
+            RibbonGroup("reports", (RibbonAction("reports", "document"),)),
+            RibbonGroup("export", (RibbonAction("export_csv", "export"),)),
         ),
     ),
     RibbonTab(
         "view",
         (
-            RibbonGroup("display", (RibbonAction("reset_view", "⌂"),)),
+            RibbonGroup("display", (RibbonAction("reset_view", "home"),)),
             RibbonGroup(
                 "layout",
                 (
-                    RibbonAction("toggle_outline", "▯", "Ctrl+B"),
-                    RibbonAction("toggle_task_page", "▯"),
-                    RibbonAction("toggle_console", "▁", "Ctrl+J"),
+                    RibbonAction("toggle_outline", "panel_left", "Ctrl+B"),
+                    RibbonAction("toggle_task_page", "panel_bottom_left"),
+                    RibbonAction("toggle_console", "panel_bottom", "Ctrl+J"),
                 ),
             ),
             RibbonGroup(
                 "appearance",
                 (
-                    RibbonAction("theme_light", "☀"),
-                    RibbonAction("theme_dark", "☾"),
-                    RibbonAction("theme_system", "◐"),
+                    RibbonAction("theme_light", "sun"),
+                    RibbonAction("theme_dark", "moon"),
+                    RibbonAction("theme_system", "contrast"),
                 ),
             ),
         ),
@@ -196,7 +208,7 @@ class Ribbon(QWidget):
         self._labels = labels
         self._buttons: dict[str, QToolButton] = {}
         self._menu_actions: dict[str, QAction] = {}
-        self._glyphs: dict[str, str] = {}
+        self._icons: dict[str, str] = {}
         #: Each button's own tooltip, kept so that re-enabling an action can put
         #: back the sentence *with its shortcut*. Recomposing it instead lost
         #: the shortcut, which is the only place NFR-A1's keyboard route is
@@ -276,7 +288,7 @@ class Ribbon(QWidget):
             lambda _checked=False, key=action.key: self.action_triggered.emit(key)
         )
         self._buttons[action.key] = button
-        self._glyphs[action.key] = action.glyph
+        self._icons[action.key] = action.icon
         return button
 
     def _build_file_button(self) -> QToolButton:
@@ -325,6 +337,7 @@ class Ribbon(QWidget):
         button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         button.clicked.connect(lambda: self.action_triggered.emit("guide"))
         self._buttons["guide"] = button
+        self._icons["guide"] = "help"
         return button
 
     @staticmethod
@@ -388,9 +401,8 @@ class Ribbon(QWidget):
     def set_palette(self, palette: Palette) -> None:
         self._palette = palette
         for key, button in self._buttons.items():
-            glyph = self._glyphs.get(key)
-            if glyph:
-                button.setIcon(glyph_icon(glyph, palette.text))
+            if name := self._icons.get(key):
+                button.setIcon(vector_icon(name, palette.text))
 
     # -- inspection --------------------------------------------------------
 

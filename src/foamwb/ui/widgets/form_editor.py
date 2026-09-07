@@ -114,7 +114,14 @@ class FormEditor(QWidget):
 
         page = QWidget()
         page.setMaximumWidth(_FORM_WIDTH)
-        form = QFormLayout(page)
+        # The form sits inside a column with the slack below it, rather than
+        # being the page's own layout. A ``QFormLayout`` given more height than
+        # its rows need spreads them down it, so a one-field dictionary drew its
+        # single row — and its help text — floating in the middle of an
+        # otherwise empty pane, which reads as a view that failed to load.
+        column_of_rows = QVBoxLayout(page)
+        column_of_rows.setContentsMargins(0, 0, 0, 0)
+        form = QFormLayout()
         form.setContentsMargins(4, 4, 4, 4)
         form.setSpacing(8)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
@@ -167,6 +174,8 @@ class FormEditor(QWidget):
             label.setToolTip(field.key)
             form.addRow(label, holder)
 
+        column_of_rows.addLayout(form)
+        column_of_rows.addStretch(1)
         self._scroll.setWidget(page)
         self._show_unknown_keys(schema, document)
         self._save_button.setEnabled(False)

@@ -203,6 +203,11 @@ QWidget {{
     font-size: 13px;
 }}
 
+/* A four-step type scale, and nothing between the steps. Everything was 13px
+   with a single 22px heading, so a window had two sizes in it and no hierarchy
+   — the eye had no way to tell a panel's title from its contents except by
+   position. */
+
 /* Text-bearing widgets inherit whatever is painted behind them instead of
    repainting the window background over it. Without this, every label inside a
    filled container — a library card, the Hub's runtime banner, the
@@ -217,12 +222,28 @@ QRadioButton {{
 }}
 
 QLabel[role="heading"] {{
-    font-size: 22px;
+    font-size: 19px;
     font-weight: 600;
+    padding-bottom: 2px;
 }}
 
 QLabel[role="subheading"] {{
     font-size: 15px;
+    font-weight: 600;
+}}
+
+/* A panel's own name: small, heavy and quiet. It labels a region rather than
+   introducing content, so it must not compete with the content. */
+QLabel[role="panelTitle"] {{
+    font-size: 11px;
+    font-weight: 700;
+    color: {palette.text_muted};
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+}}
+
+QLabel[role="stageName"] {{
+    font-size: 13px;
     font-weight: 600;
 }}
 
@@ -246,6 +267,34 @@ QLabel[role="muted"] {{
     border-top: 1px solid {palette.border};
 }}
 
+/* The tab strip sits on the window ground and the band below it on the raised
+   surface, so the selected tab reads as opening onto the band rather than as
+   one chip among six. */
+#ribbonTabs QTabBar {{
+    background-color: {palette.bg};
+}}
+
+#ribbonTabs QTabBar::tab {{
+    background-color: transparent;
+    color: {palette.text_muted};
+    border: none;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    padding: 7px 16px;
+    margin: 3px 1px 0px 1px;
+    font-weight: 500;
+}}
+
+#ribbonTabs QTabBar::tab:selected {{
+    background-color: {palette.surface};
+    color: {palette.text};
+    font-weight: 600;
+}}
+
+#ribbonTabs QTabBar::tab:hover:!selected {{
+    color: {palette.text};
+}}
+
 #ribbonPage,
 #ribbonGroup {{
     background-color: {palette.surface};
@@ -259,8 +308,8 @@ QLabel[role="muted"] {{
     background-color: transparent;
     border: 1px solid transparent;
     border-radius: 6px;
-    padding: 4px 8px;
-    min-width: 56px;
+    padding: 5px 9px 3px 9px;
+    min-width: 54px;
     color: {palette.text};
 }}
 
@@ -285,12 +334,15 @@ QLabel[role="muted"] {{
 
 QLabel[role="ribbonCaption"] {{
     color: {palette.text_muted};
-    font-size: 11px;
+    font-size: 10px;
+    padding-top: 1px;
 }}
 
+/* Short, and inset from both ends: a full-height hairline between groups reads
+   as a table rule and chops the band into cells. */
 #ribbonSeparator {{
     background-color: {palette.border};
-    margin: 4px 2px 14px 2px;
+    margin: 10px 3px 18px 3px;
 }}
 
 /* File is the accented control at the left of the tab strip, as it is in every
@@ -300,9 +352,10 @@ QLabel[role="ribbonCaption"] {{
     background-color: {palette.accent};
     color: {palette.on_accent};
     border: none;
-    border-radius: 4px;
-    padding: 5px 14px;
-    margin: 2px 6px 0px 6px;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    padding: 7px 16px;
+    margin: 3px 8px 0px 4px;
     font-weight: 600;
 }}
 
@@ -341,18 +394,35 @@ QLabel[role="ribbonCaption"] {{
 /* The tree fills its panel rather than sitting in a rounded box inside it: it
    *is* the panel, and a border here would draw a second frame a pixel inside
    the one the panel already has. */
+/* The tree *is* the panel, so it fills it — a border here would draw a second
+   frame a pixel inside the one the panel already has. The horizontal padding is
+   the point: rows ran edge to edge, and a selection bar with no inset reads as
+   a highlighter stroke rather than a selected row. */
 #outlineTree {{
     background-color: {palette.surface};
     border: none;
     border-radius: 0px;
+    padding: 2px 6px 6px 6px;
 }}
 
 #outlineTree::item {{
-    padding: 4px 2px;
+    padding: 5px 3px;
+    border-radius: 4px;
+}}
+
+#outlineTree::item:selected {{
+    background-color: {palette.accent};
+    color: {palette.on_accent};
 }}
 
 #outline QLineEdit {{
-    margin: 0px 8px 6px 8px;
+    margin: 0px 10px 8px 10px;
+}}
+
+/* Kept at the foot of the column rather than floating in the middle of the
+   tree, and quiet: it is a way back, not the thing to do next. */
+#outline QPushButton {{
+    margin: 0px 10px 10px 10px;
 }}
 
 #taskPage {{
@@ -364,9 +434,7 @@ QLabel[role="ribbonCaption"] {{
     border-bottom: 1px solid {palette.border};
 }}
 
-QLabel[role="panelTitle"] {{
-    font-weight: 600;
-}}
+
 
 #consoleDock {{
     background-color: {palette.bg};
@@ -396,11 +464,99 @@ QLabel[role="panelTitle"] {{
     border-top: 1px solid {palette.border};
 }}
 
+/* The dock's own padding. Its toolbar ran to the window edge, which clipped
+   "Follow output" against the frame, and its log sat in a bordered box inside
+   an already-bordered pane. */
+#consoleTabs > QWidget {{
+    padding: 6px 12px 8px 12px;
+}}
+
+#logView {{
+    border: 1px solid {palette.border};
+    border-radius: 6px;
+}}
+
+/* The file tree is a document panel rather than a control in a form, so it
+   fills its half of the splitter and pads its own rows — the same treatment
+   the outline gets, for the same reason. */
+#caseFileTree {{
+    border: none;
+    border-right: 1px solid {palette.border};
+    border-radius: 0px;
+    padding: 2px 6px 6px 6px;
+}}
+
+#caseFileTree::item {{
+    padding: 5px 3px;
+    border-radius: 4px;
+}}
+
+/* The same treatment as the graphics window's, for the same reason: the
+   generic rule gives every tab a box and a border, and two bordered chips over
+   a log pane is more chrome than a two-tab strip can carry. */
+#consoleTabs QTabBar {{
+    background-color: {palette.bg};
+}}
+
+#consoleTabs QTabBar::tab {{
+    background-color: transparent;
+    color: {palette.text_muted};
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0px;
+    padding: 6px 14px;
+    margin: 0px;
+    font-size: 12px;
+    font-weight: 500;
+}}
+
+#consoleTabs QTabBar::tab:selected {{
+    color: {palette.text};
+    border-bottom: 2px solid {palette.accent};
+    font-weight: 600;
+}}
+
+#consoleTabs QTabBar::tab:hover:!selected {{
+    color: {palette.text};
+}}
+
 /* The graphics window is the page, so it keeps the window background while
    every panel around it is raised. That contrast is what makes the centre read
    as the thing being worked on. */
 #graphicsWindow {{
     background-color: {palette.bg};
+}}
+
+/* Document tabs, not chips. The generic rule below gives every tab a box, a
+   border and a fill, which across ten documents makes the strip the loudest
+   thing on the screen and the *selected* one no louder than the rest. Here the
+   selection is carried by weight, colour and a rule underneath — the same three
+   channels, none of them a border. */
+#graphicsTabs QTabBar {{
+    background-color: {palette.surface};
+}}
+
+#graphicsTabs QTabBar::tab {{
+    background-color: transparent;
+    color: {palette.text_muted};
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0px;
+    padding: 8px 14px;
+    margin: 0px;
+    font-weight: 500;
+}}
+
+#graphicsTabs QTabBar::tab:selected {{
+    background-color: {palette.bg};
+    color: {palette.text};
+    border-bottom: 2px solid {palette.accent};
+    font-weight: 600;
+}}
+
+#graphicsTabs QTabBar::tab:hover:!selected {{
+    background-color: {palette.surface_alt};
+    color: {palette.text};
 }}
 
 /* -- footer -------------------------------------------------------------- */

@@ -134,7 +134,9 @@ class _StageChip(QFrame):
         layout.setSpacing(1)
 
         self._title = QLabel(name)
-        self._title.setProperty("role", "subheading")
+        # The stage's name, not a heading: three of these stacked at heading
+        # weight made the plan the loudest thing in the column.
+        self._title.setProperty("role", "stageName")
         self._status = QLabel()
         self._status.setProperty("role", "muted")
 

@@ -266,8 +266,12 @@ class Shell(QMainWindow):
         left = QSplitter(Qt.Orientation.Vertical)
         left.addWidget(self._outline)
         left.addWidget(self._task_page)
-        left.setStretchFactor(0, 5)
-        left.setStretchFactor(1, 4)
+        # The tree is twenty-five rows and the task page is usually one short
+        # form, so the split favours the tree. At parity the outline showed nine
+        # rows of twenty-five and the user had to scroll to see the shape of the
+        # work, which is the one thing it exists to show.
+        left.setStretchFactor(0, 7)
+        left.setStretchFactor(1, 5)
         left.setChildrenCollapsible(False)
         # Wide enough for the longest row the outline can produce and for the
         # settings table's three columns. Below this the tree elides, and

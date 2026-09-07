@@ -166,7 +166,6 @@ class RunView(QWidget):
             row.addWidget(self._status, stretch=1)
         else:
             column.addWidget(self._status)
-            row.addStretch(1)
 
         self._run_button = QPushButton(labels["run"])
         self._run_button.setDefault(True)
@@ -189,6 +188,11 @@ class RunView(QWidget):
             action.triggered.connect(lambda _checked=False, m=mode: self._confirm_stop(m))
         self._stop_button.setMenu(menu)
         row.addWidget(self._stop_button)
+        if not self._owns_panes:
+            # Left-aligned under the sentence they follow from. Pushed right by
+            # a stretch they sat against the panel's far edge, as far from the
+            # status line as the column allowed.
+            row.addStretch(1)
         column.addLayout(row)
         return bar
 

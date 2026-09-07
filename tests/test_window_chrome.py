@@ -15,7 +15,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QLabel, QWidget
 
 from foamwb.ui import strings
-from foamwb.ui.icons import ICON_SIZE, glyph_icon
+from foamwb.ui.icons import ICON_SIZE, ICONS, vector_icon
 from foamwb.ui.ribbon import FILE_MENU, RIBBON_TABS, Ribbon
 from foamwb.ui.theme import DARK, LIGHT
 from foamwb.ui.widgets.console_dock import ConsoleDock
@@ -128,6 +128,21 @@ class TestTheRibbonRendersItsTable:
                 for action in group.actions:
                     assert not ribbon.button(action.key).icon().isNull(), action.key
 
+    def test_every_action_names_an_icon_that_exists(self) -> None:
+        """A typo here used to ship a blank button; now it fails the build."""
+        for tab in RIBBON_TABS:
+            for group in tab.groups:
+                for action in group.actions:
+                    assert action.icon in ICONS, f"{action.key} names {action.icon!r}"
+
+    def test_no_two_actions_in_a_group_share_a_mark(self) -> None:
+        """Two buttons side by side with one icon between them is a legend the
+        user cannot read — *Initialize* and *Update* were both a recycle arrow."""
+        for tab in RIBBON_TABS:
+            for group in tab.groups:
+                icons = [action.icon for action in group.actions]
+                assert len(icons) == len(set(icons)), f"{tab.key}/{group.key}"
+
     def test_the_icons_follow_the_palette(self, ribbon: Ribbon) -> None:
         """NFR-A4 — a dark theme must not ship a second set of artwork."""
         before = ribbon.button("calculate").icon().cacheKey()
@@ -135,11 +150,40 @@ class TestTheRibbonRendersItsTable:
         assert ribbon.button("calculate").icon().cacheKey() != before
 
 
-class TestGlyphIcons:
-    """NFR-A3 — resolution-independent by construction, not a bitmap."""
+class TestDrawnIcons:
+    """NFR-A3 — drawn, not borrowed from a font and not a raster asset.
+
+    These were Unicode glyphs, and two of them drew the replacement box on
+    macOS: the ribbon shipped with tofu in it. A drawing cannot be missing.
+    """
 
     def test_it_produces_an_icon(self) -> None:
-        assert isinstance(glyph_icon("▶", "#000000"), QIcon)
+        assert isinstance(vector_icon("play", "#000000"), QIcon)
+
+    def test_every_named_icon_draws_something(self) -> None:
+        """A name in the table with no marks behind it is a blank button."""
+        blank = [
+            name
+            for name in ICONS
+            if vector_icon(name, "#000000").pixmap(ICON_SIZE, ICON_SIZE).isNull()
+        ]
+        assert not blank
+
+    def test_no_two_icons_are_the_same_drawing(self) -> None:
+        """Two names for one mark is a legend the user cannot read.
+
+        ``fill`` and ``panel_bottom`` were identical instruction for
+        instruction, and so were ``half`` and ``contrast`` — which meant
+        *Initialize* and *Describe Geometry* wore another action's mark.
+        """
+        seen: dict[tuple, str] = {}
+        for name, path in ICONS.items():
+            key = tuple(tuple(step) for step in path)
+            assert key not in seen, f"{name} draws the same as {seen.get(key)}"
+            seen[key] = name
+
+    def test_an_unknown_name_is_blank_rather_than_a_crash(self) -> None:
+        assert not vector_icon("nonesuch", "#000000").availableSizes()[0].isEmpty()
 
     def test_it_is_rendered_above_the_logical_size(self) -> None:
         """A 1x pixmap would blur on every display the application supports.
@@ -148,15 +192,16 @@ class TestGlyphIcons:
         question worth asking is what it actually *has*, which is what it scales
         from on a Retina display.
         """
-        available = glyph_icon("▶", "#000000").availableSizes()
+        available = vector_icon("play", "#000000").availableSizes()
         assert available and available[0].width() >= ICON_SIZE * 2
 
     def test_the_same_request_is_cached(self) -> None:
-        """The ribbon asks for forty icons on every repaint of the palette."""
-        assert glyph_icon("▶", "#000000") is glyph_icon("▶", "#000000")
+        """The ribbon asks for every icon again on each repaint of the palette."""
+        assert vector_icon("play", "#000000") is vector_icon("play", "#000000")
 
     def test_a_different_colour_is_a_different_icon(self) -> None:
-        assert glyph_icon("▶", "#000000") is not glyph_icon("▶", "#ffffff")
+        """NFR-A4 — the dark theme must not need a second set of artwork."""
+        assert vector_icon("play", "#000000") is not vector_icon("play", "#ffffff")
 
 
 class TestTheTaskPage:

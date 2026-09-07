@@ -53,6 +53,7 @@ class TaskPage(QWidget):
 
         self._header = header
         self._stack = QStackedWidget()
+        self._stack.setObjectName("taskPageStack")
         column.addWidget(self._stack, stretch=1)
 
         self._empty = QLabel(labels["task_page_none"])
@@ -82,8 +83,26 @@ class TaskPage(QWidget):
         super().resizeEvent(event)
         self._fit_caption()
 
+    #: Margin every page is given, unless it already sets its own.
+    #:
+    #: Set here rather than in each of the twelve pages. They were written at
+    #: different times with different contents margins — several with none — so
+    #: some headings and tables ran into the column's left edge and others did
+    #: not, and the column had no left alignment at all. A style sheet ``padding``
+    #: does not do this: on a plain ``QWidget`` it insets the frame Qt paints,
+    #: not the layout inside it.
+    MARGIN = (12, 10, 12, 10)
+
     def add_page(self, key: str, widget: QWidget) -> None:
-        """Register a page under a name a node can refer to."""
+        """Register a page under a name a node can refer to.
+
+        A page that has already set its own margins keeps them — the run page's
+        stage strip is inset by its own frame, and adding to that would indent
+        it past everything beside it.
+        """
+        layout = widget.layout()
+        if layout is not None and layout.contentsMargins().left() == 0:
+            layout.setContentsMargins(*self.MARGIN)
         self._keys[key] = self._stack.addWidget(widget)
 
     def show_page(self, key: str, *, title: str = "", caption: str = "") -> bool:
