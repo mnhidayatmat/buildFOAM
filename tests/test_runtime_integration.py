@@ -32,7 +32,7 @@ from foamwb.services.run import (
     StageState,
     StopMode,
 )
-from foamwb.services.runtime import RuntimeManager, RuntimeState
+from foamwb.services.runtime import RuntimeKind, RuntimeManager, RuntimeState
 
 pytestmark = pytest.mark.requires_runtime
 
@@ -92,11 +92,23 @@ class TestDetection:
             assert status.openfoam_version == installation.version
 
 
+def _shell(session, variable: str | None = None) -> list[str]:
+    """Print a variable, or the working directory, in the runtime's own shell.
+
+    A native Windows build has no bash (FR-N); ``cmd`` is its shell, switched to
+    the UTF-8 code page so a Unicode directory name survives the trip.
+    """
+    if session.kind is RuntimeKind.WINDOWS_NATIVE:
+        probe = f"echo %{variable}%" if variable else "cd"
+        return ["cmd", "/d", "/c", f"chcp 65001 >nul & {probe}"]
+    return ["bash", "-c", f"echo ${variable}" if variable else "pwd"]
+
+
 class TestSession:
     def test_runs_a_command_in_the_openfoam_environment(self, runtime) -> None:
         manager, installation, _status = runtime
         session = manager.session_for(installation)
-        code, output = session.run_to_completion(["bash", "-c", "echo $WM_PROJECT_DIR"], timeout=60)
+        code, output = session.run_to_completion(_shell(session, "WM_PROJECT_DIR"), timeout=60)
         session.close()
         assert code == 0
         assert output.strip()
@@ -108,7 +120,20 @@ class TestSession:
         awkward = tmp_path / "my cases" / "föö bär"
         awkward.mkdir(parents=True)
         session = manager.session_for(installation)
-        code, output = session.run_to_completion(["bash", "-c", "pwd"], cwd=awkward, timeout=60)
+        if session.kind is RuntimeKind.WINDOWS_NATIVE:
+            # cmd cannot echo the name back through a pipe outside the ANSI code
+            # page, so the claim is tested directly: an OpenFOAM program starts
+            # and succeeds inside the directory (FR-N; E-C18 covers the scripts
+            # such a build cannot open at all).
+            code, output = session.run_to_completion(
+                ["blockMesh", "-help"], cwd=session.to_runtime_path(awkward), timeout=60
+            )
+            session.close()
+            assert code == 0, output
+            return
+        code, output = session.run_to_completion(
+            _shell(session), cwd=session.to_runtime_path(awkward), timeout=60
+        )
         session.close()
         assert code == 0
         assert "föö bär" in output

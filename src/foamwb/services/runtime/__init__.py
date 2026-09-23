@@ -14,6 +14,7 @@ from foamwb.services.runtime.provision import (
 )
 from foamwb.services.runtime.session import Process, RuntimeKind, RuntimeSession
 from foamwb.services.runtime.status import RuntimeState, RuntimeStatus
+from foamwb.services.runtime.windows import WindowsNativeProcess, WindowsNativeSession
 
 __all__ = [
     "Installation",
@@ -34,5 +35,7 @@ __all__ = [
     "RuntimeState",
     "RuntimeStatus",
     "Strategy",
+    "WindowsNativeProcess",
+    "WindowsNativeSession",
     "load_manifest",
 ]

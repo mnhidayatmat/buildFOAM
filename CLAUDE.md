@@ -117,7 +117,9 @@ Services communicate upward through plain callbacks and return values, never sig
 
 ### Everything runs through `RuntimeSession`
 
-`services/runtime/session.py` abstracts "run a command in an OpenFOAM environment". `NativeSession` is the only implementation and has **two modes**: a launcher script (macOS app bundle) or sourcing `etc/bashrc` (Debian/Linux). The bashrc mode is §3.2's command bridge verbatim, which is what `WslSession` will need at M3. `WslSession` and `DockerSession` (FR-R10, Intel Macs) do not exist yet.
+`services/runtime/session.py` abstracts "run a command in an OpenFOAM environment". `NativeSession` has **two modes**: a launcher script (macOS app bundle) or sourcing `etc/bashrc` (Debian/Linux) — the bashrc mode is §3.2's command bridge verbatim, which `WslSession` reuses. `WindowsNativeSession` (`runtime/windows.py`, FR-N) drives a MinGW-built Windows OpenFOAM with no bash at all: it runs `platforms/<arch>/bin/*.exe` directly, builds `PATH` itself (this install first, the MS-MPI or serial `Pstream` chosen per run), rewrites `mpirun -np` to MS-MPI's `mpiexec -n`, ends trees with `taskkill /T /F`, and refuses case paths outside the ANSI code page (E-C18) because the build cannot open them. `DockerSession` (FR-R10, Intel Macs) does not exist yet.
+
+Discovery tests are hermetic (`tests/conftest.py` clears `WM_PROJECT_DIR` and the Windows search roots) unless marked `requires_runtime` — a machine with a native Windows install otherwise leaks it into every discovery test. Set `FOAMWB_WINDOWS_OPENFOAM=<root>` to run the real-build cavity test.
 
 Callers never build shell strings. `argv` is a token list and the bashrc mode expands it with `"$@"`, so a case path with a space or `$` stays one argument.
 

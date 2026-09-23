@@ -127,6 +127,26 @@
       }
     }
   },
+  "windows_native": {
+    "_comment": [
+      "OpenFOAM compiled for Windows itself (MinGW, MS-MPI) — FR-N. Found by its layout,",
+      "not by version: <root>/platforms/<arch>/bin/blockMesh.exe, with the release read",
+      "from <root>/META-INFO/api-info. 'search_roots' are parents scanned for",
+      "'project_glob'; WM_PROJECT_DIR, which such installers set system-wide, is checked",
+      "first. 'mpiexec' names the MPI launcher and the variable that locates it."
+    ],
+    "search_roots": [
+      "C:/Simulation/OpenFOAM",
+      "C:/Program Files/OpenFOAM",
+      "C:/OpenFOAM"
+    ],
+    "project_glob": "OpenFOAM-v*",
+    "mpiexec": {
+      "executable": "mpiexec.exe",
+      "bin_variable": "MSMPI_BIN",
+      "runtime_dll": "msmpi.dll"
+    }
+  },
   "homebrew": {
     "_comment": "Installer used by FR-R11 when Homebrew is absent.",
     "install_url": "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh",

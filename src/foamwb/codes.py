@@ -166,6 +166,17 @@ class ErrorCode:
     """A case that arrived with its own tuned ``snappyHexMeshDict`` must not lose
     it to a button labelled *Generate*. Overwriting is offered, never assumed."""
 
+    PATH_NOT_REPRESENTABLE = _c(
+        "E-C18",
+        "The case path has characters this runtime cannot open",
+        "cases/path-not-representable",
+    )
+    """A native Windows OpenFOAM build (FR-N) opens files through the ANSI code
+    page, so a folder named in a script outside it — Chinese on a Western-European
+    system — cannot be opened, and ``blockMesh`` exits 1 without saying why.
+    Refused before the run starts, naming the folder, because the remedy is to
+    move or rename it and nothing the solver could print would say so."""
+
     CAD_CONVERSION_FAILED = _c("E-C12", "CAD conversion failed", "cases/cad-conversion-failed")
     """The converter ran and did not produce a usable surface. Carries the
     tool's own output, because the cause is in the model — an unhealed solid, a

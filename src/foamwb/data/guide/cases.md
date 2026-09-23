@@ -87,6 +87,20 @@ share or a Windows drive seen from inside WSL, that is roughly an order of
 magnitude slower than a local disk, and a long run may spend more time writing
 than solving. Move the case to local storage.
 
+## Path not representable
+
+**E-C18.** The case is in a folder whose name contains characters the OpenFOAM
+build on this computer cannot open.
+
+Native Windows builds of OpenFOAM read files through the Windows *ANSI code
+page*, which covers one script — Western European letters such as `ö` and `é`
+on most European and American systems. A folder named in another script, such
+as `模拟` or `시뮬레이션`, cannot be opened by the solver at all.
+
+Move the case, or rename the folder, so that its whole path uses the characters
+of your system's code page. Spaces are fine. Runtimes that go through WSL are
+not affected.
+
 ## Version mismatch
 
 **E-C07.** The case was written for an OpenFOAM release this runtime does not
