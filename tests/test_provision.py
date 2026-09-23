@@ -7,6 +7,7 @@ hostile to run locally, and it would test the network rather than the code.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Sequence
 
 import pytest
@@ -265,6 +266,11 @@ class TestDockerHonesty:
 
 
 class TestManagerIntegration:
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="fabricates a POSIX launcher script; the Windows equivalent is in "
+        "test_windows_native.py",
+    )
     def test_plan_provision_adopts_what_is_already_working(self, manifest, tmp_path) -> None:
         from foamwb.services.runtime import RuntimeManager
 

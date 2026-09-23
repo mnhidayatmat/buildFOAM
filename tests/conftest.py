@@ -143,3 +143,24 @@ def _hermetic_runtime_discovery(request, monkeypatch):
     monkeypatch.setattr(
         "foamwb.services.runtime.manager.default_windows_roots", lambda _manifest: ()
     )
+
+
+# ---------------------------------------------------------------------------
+# Symlinks where the platform allows them
+# ---------------------------------------------------------------------------
+
+
+def symlink_or_skip(link: Path, target: Path, *, directory: bool = False) -> None:
+    """Create a symlink, or skip the test where this account may not.
+
+    Windows grants the privilege only with Developer Mode or elevation, and
+    WinError 1314 there says nothing about the code under test. Skipped rather
+    than failed, and never skipped where symlinks work, so the behaviour stays
+    covered on macOS and Linux and on any Windows machine configured for it.
+    """
+    try:
+        link.symlink_to(target, target_is_directory=directory)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("creating symlinks needs Developer Mode or elevation on Windows")
+        raise

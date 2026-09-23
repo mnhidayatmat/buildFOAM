@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import symlink_or_skip
 from foamwb.services.journal import JournalEntry, JournalService
 
 
@@ -68,7 +69,9 @@ class TestRecovery:
         dismiss the dialog."""
         text = "application icoFoam;\nendTime 42;\n"
         journal.record(case, "system/controlDict", text)
-        (case / "system" / "controlDict").write_text(text)
+        # Bytes, not write_text: on Windows that writes CRLF, and the file would
+        # then genuinely differ from the buffer — a conflict, correctly reported.
+        (case / "system" / "controlDict").write_bytes(text.encode("utf-8"))
         assert journal.recoveries(case) == []
 
     def test_a_missing_file_is_reported_as_missing(self, journal, case) -> None:
@@ -254,7 +257,7 @@ class TestTheEditorIsWiredToTheCase:
         view.set_case(opened)
 
         link = tmp_path / "link"
-        link.symlink_to(case, target_is_directory=True)
+        symlink_or_skip(link, case, directory=True)
         view.open_file(link / "system" / "controlDict")
         assert view.text.content
 

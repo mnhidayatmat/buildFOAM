@@ -884,7 +884,9 @@ class TestTheStartDocument:
     def test_recent_cases_also_reach_the_file_menu(self, shell: Shell) -> None:
         """Fluent's File → Recent. The same list, so the two cannot disagree."""
         shell.set_recent_cases([RecentCase(Path("/cases/pitzDaily"))])
-        assert [a.text() for a in shell.ribbon._recent.actions()] == ["/cases/pitzDaily"]
+        # The platform's own spelling of the path — backslashes on Windows.
+        expected = [str(Path("/cases/pitzDaily"))]
+        assert [a.text() for a in shell.ribbon._recent.actions()] == expected
 
     def test_an_empty_recent_menu_says_so_rather_than_being_blank(self, shell: Shell) -> None:
         shell.set_recent_cases([])

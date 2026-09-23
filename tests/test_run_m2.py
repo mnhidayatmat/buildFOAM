@@ -291,7 +291,9 @@ class TestRunController:
     def test_runs_in_the_case_directory(self, tmp_path) -> None:
         session = FakeSession()
         RunController(session).execute(_plan(tmp_path))
-        assert all(str(cwd) == str(tmp_path) for _argv, cwd in session.calls)
+        # Compared as host paths: the runtime path is POSIX-typed, and on
+        # Windows its string uses forward slashes where the host's uses back.
+        assert all(session.to_host_path(cwd) == tmp_path for _argv, cwd in session.calls)
 
     def test_a_missing_binary_is_reported_not_raised(self, tmp_path) -> None:
         # E-S05. Raising would take down the UI thread for a case that is simply

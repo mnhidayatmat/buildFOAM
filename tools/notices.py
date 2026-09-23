@@ -12,6 +12,15 @@ so this file records the SPDX identifier its metadata declares and says where th
 text can be obtained. Pasting in a licence nobody shipped would be a statement
 about someone else's terms that we are not entitled to make.
 
+**One file per platform, because the wheels differ.** The Windows numpy wheel
+bundles a different OpenBLAS and no libquadmath; the Windows Qt wheels ship
+licence text the macOS ones do not. A single file generated on one platform
+described components the other installer does not contain and omitted text for
+ones it does. Each installer therefore ships the file generated where it was
+built — ``THIRD-PARTY-NOTICES`` on macOS, ``THIRD-PARTY-NOTICES.windows`` on
+Windows — and each is checked on its own platform. Written with LF everywhere,
+because the repository stores bytes as they are (``.gitattributes``).
+
 The bundled content is listed separately, because it is not a Python dependency
 and its obligations run to a different party — those cases are OpenCFD's, under
 GPL-3.0, and the catalogue already records that per item.
@@ -41,6 +50,12 @@ KNOWN_SOURCES = {
 }
 
 RULE = "=" * 78
+
+
+def default_out() -> Path:
+    """The notices file for the platform this runs on."""
+    name = "THIRD-PARTY-NOTICES.windows" if sys.platform == "win32" else "THIRD-PARTY-NOTICES"
+    return REPO_ROOT / name
 
 
 def _licence_text(name: str) -> str | None:
@@ -129,18 +144,18 @@ def build() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", type=Path, default=REPO_ROOT / "THIRD-PARTY-NOTICES")
+    parser.add_argument("--out", type=Path, default=default_out())
     parser.add_argument("--check", action="store_true", help="fail if out of date")
     arguments = parser.parse_args(argv)
 
     generated = build()
     if arguments.check:
         if not arguments.out.is_file():
-            print("notices: THIRD-PARTY-NOTICES is missing", file=sys.stderr)
+            print(f"notices: {arguments.out.name} is missing", file=sys.stderr)
             return 1
-        if arguments.out.read_text(encoding="utf-8") != generated:
+        if arguments.out.read_bytes().decode("utf-8") != generated:
             print(
-                "notices: THIRD-PARTY-NOTICES is out of date. Regenerate with "
+                f"notices: {arguments.out.name} is out of date. Regenerate with "
                 "`python tools/notices.py`.",
                 file=sys.stderr,
             )
@@ -148,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"notices: OK — {arguments.out.name} matches the installed set")
         return 0
 
-    arguments.out.write_text(generated, encoding="utf-8")
+    arguments.out.write_bytes(generated.encode("utf-8"))
     print(f"wrote {arguments.out} ({len(generated.splitlines())} lines)")
     return 0
 
