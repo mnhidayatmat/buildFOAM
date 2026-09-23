@@ -120,3 +120,26 @@ def tutorials(runtime) -> Path:
     if found is None:
         require_runtime_or_skip(f"tutorials not reachable from {installation.entry_point}")
     return found
+
+
+# ---------------------------------------------------------------------------
+# Discovery is hermetic unless a test needs the real runtime
+# ---------------------------------------------------------------------------
+#
+# A machine with a native Windows OpenFOAM installed has WM_PROJECT_DIR set
+# system-wide and a build under one of the manifest's search roots. Without
+# this, every discovery test on that machine sees an installation its fixture
+# never created and fails for a reason that has nothing to do with the code —
+# which is exactly how the first run on such a machine behaved. Tests marked
+# requires_runtime are exempt: finding the real installation is their point.
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_runtime_discovery(request, monkeypatch):
+    if request.node.get_closest_marker("requires_runtime"):
+        return
+    monkeypatch.delenv("WM_PROJECT_DIR", raising=False)
+    monkeypatch.delenv("WM_PROJECT_VERSION", raising=False)
+    monkeypatch.setattr(
+        "foamwb.services.runtime.manager.default_windows_roots", lambda _manifest: ()
+    )

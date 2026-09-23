@@ -30,6 +30,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from foamwb import paths
 from foamwb.codes import ErrorCode
 from foamwb.logs import Event, get_logger, log_event
 from foamwb.services.runtime.manifest import Manifest, load_manifest
@@ -40,7 +41,16 @@ from foamwb.services.runtime.provision import (
     ProvisionPlan,
     ProvisionResult,
 )
+from foamwb.services.runtime.session import RuntimeSession
 from foamwb.services.runtime.status import RuntimeState, RuntimeStatus
+from foamwb.services.runtime.windows import (
+    CANARY_UTILITY,
+    STATUS_DLL_NOT_FOUND,
+    WindowsNativeSession,
+    find_platform_dir,
+    read_api_version,
+    unpack_tutorials,
+)
 
 __all__ = ["Installation", "RuntimeManager"]
 
@@ -77,6 +87,14 @@ class Installation:
 
     verified: bool = False
 
+    platform_dir: Path | None = None
+    """``platforms/<arch>`` of a native Windows build (FR-N), which has neither a
+    launcher nor a bashrc that anything can run. ``None`` for every other kind."""
+
+    @property
+    def is_windows_native(self) -> bool:
+        return self.platform_dir is not None
+
     @property
     def label(self) -> str:
         return f"{self.version or 'unknown'} ({self.bundle.name})"
@@ -84,9 +102,24 @@ class Installation:
     @property
     def entry_point(self) -> Path:
         """Whichever of the two exists — for logging and error messages."""
+        if self.platform_dir is not None:
+            return self.platform_dir / "bin" / f"{CANARY_UTILITY}.exe"
         entry = self.launcher or self.bashrc
         assert entry is not None
         return entry
+
+
+def default_windows_roots(manifest: Manifest) -> tuple[Path, ...]:
+    """Where native Windows builds are looked for when the caller does not say.
+
+    Only on Windows: ``C:/Simulation`` means nothing on a Mac, and probing it
+    there would be pointless work in a call the wizard makes during its system
+    check. A module function rather than inline, so the test suite can make
+    discovery hermetic on a machine that has a real installation.
+    """
+    if os.name != "nt":
+        return ()
+    return tuple(Path(r) for r in manifest.windows_native.get("search_roots", ()))
 
 
 class RuntimeManager:
@@ -98,9 +131,15 @@ class RuntimeManager:
         *,
         application_dirs: tuple[Path, ...] = _APPLICATION_DIRS,
         provisioner: Provisioner | None = None,
+        windows_roots: tuple[Path, ...] | None = None,
+        cache_dir: Path | None = None,
     ) -> None:
         self._manifest = manifest or load_manifest()
         self._application_dirs = application_dirs
+        self._cache_dir = cache_dir or paths.cache_dir()
+        self._windows_roots = (
+            windows_roots if windows_roots is not None else default_windows_roots(self._manifest)
+        )
         self._provisioner = provisioner or Provisioner(self._manifest)
 
     @property
@@ -158,7 +197,10 @@ class RuntimeManager:
         # the app from a configured shell. Adopting it avoids provisioning a
         # second copy of something already present (FR-R8).
         project_dir = os.environ.get("WM_PROJECT_DIR")
-        if project_dir:
+        # A native Windows build ships etc/openfoam too, but it is a bash script
+        # nothing on that machine can run; adopting it produced an installation
+        # that failed its canary. Such a build is found by layout below instead.
+        if project_dir and find_platform_dir(Path(project_dir)) is None:
             launcher = Path(project_dir) / "etc" / "openfoam"
             if launcher.is_file() and launcher not in found:
                 found[launcher] = Installation(
@@ -166,6 +208,9 @@ class RuntimeManager:
                     bundle=Path(project_dir),
                     version=os.environ.get("WM_PROJECT_VERSION"),
                 )
+
+        for installation in self._discover_windows_native():
+            found.setdefault(installation.entry_point, installation)
 
         installations = sorted(found.values(), key=lambda i: i.version or "", reverse=True)
         log_event(
@@ -190,6 +235,44 @@ class RuntimeManager:
                 return launcher
         return None
 
+    def _discover_windows_native(self) -> list[Installation]:
+        """Native Windows builds (FR-N), found by layout rather than by name.
+
+        ``WM_PROJECT_DIR`` first: such installers set it system-wide, and it is
+        the user's own statement of which installation they mean. Then every
+        ``project_glob`` match under the manifest's search roots.
+        """
+        candidates: list[Path] = []
+        project_dir = os.environ.get("WM_PROJECT_DIR")
+        if project_dir:
+            candidates.append(Path(project_dir))
+        pattern = self._manifest.windows_native.get("project_glob", "OpenFOAM-*")
+        for root in self._windows_roots:
+            if root.is_dir():
+                candidates.extend(sorted(root.glob(pattern)))
+
+        found: list[Installation] = []
+        seen: set[Path] = set()
+        for root in candidates:
+            try:
+                resolved = root.resolve()
+            except OSError:
+                continue
+            if resolved in seen or not resolved.is_dir():
+                continue
+            seen.add(resolved)
+            platform_dir = find_platform_dir(resolved)
+            if platform_dir is None:
+                continue
+            found.append(
+                Installation(
+                    bundle=resolved,
+                    version=read_api_version(resolved) or self._version_from_name(resolved.name),
+                    platform_dir=platform_dir,
+                )
+            )
+        return found
+
     @staticmethod
     def _version_from_name(name: str) -> str | None:
         match = _VERSION_IN_NAME.search(name)
@@ -205,6 +288,9 @@ class RuntimeManager:
         Every outcome carries a §9 code, because a status the user cannot act on
         is a dead end and a status support cannot name is a screenshot.
         """
+        if installation.is_windows_native:
+            return self._verify_windows_native(installation, timeout=timeout)
+
         entry = installation.launcher or installation.bashrc
         if entry is None or not entry.is_file():
             return RuntimeStatus(
@@ -264,6 +350,65 @@ class RuntimeManager:
 
         return RuntimeStatus(state=RuntimeState.READY, kind=session.kind, openfoam_version=version)
 
+    def _verify_windows_native(
+        self, installation: Installation, *, timeout: float
+    ) -> RuntimeStatus:
+        """FR-R5 for a native Windows build: start a real executable.
+
+        There is no shell to report ``WM_PROJECT_VERSION``, so the version comes
+        from the build's ``META-INFO`` and the canary proves the other half of
+        the claim — that the executable starts and every DLL it needs loads.
+        That second half is where these builds fail in practice.
+        """
+        session = self.session_for(installation)
+        try:
+            code, output = session.run_to_completion([CANARY_UTILITY, "-help"], timeout=timeout)
+        except TimeoutError:
+            return RuntimeStatus(
+                state=RuntimeState.DEGRADED,
+                reason=ErrorCode.RUNTIME_BROKEN,
+                detail=f"{CANARY_UTILITY} did not answer within {timeout:.0f}s",
+                kind=session.kind,
+            )
+        except OSError as exc:
+            return RuntimeStatus(
+                state=RuntimeState.BROKEN,
+                reason=ErrorCode.RUNTIME_BROKEN,
+                detail=f"Could not start {CANARY_UTILITY}: {exc}",
+                kind=session.kind,
+            )
+        finally:
+            session.close()
+
+        if code != 0:
+            detail = _tail(output, 20) or f"{CANARY_UTILITY} exited {code} with no output"
+            if code & 0xFFFFFFFF == STATUS_DLL_NOT_FOUND:
+                detail = (
+                    "A DLL the OpenFOAM executables need could not be loaded "
+                    "(STATUS_DLL_NOT_FOUND). The installation may be incomplete, or "
+                    "the Microsoft MPI runtime may be missing."
+                )
+            return RuntimeStatus(
+                state=RuntimeState.BROKEN,
+                reason=ErrorCode.RUNTIME_BROKEN,
+                detail=detail,
+                kind=session.kind,
+            )
+
+        version = installation.version
+        if version is None or not self._manifest.supports(version):
+            return RuntimeStatus(
+                state=RuntimeState.DEGRADED,
+                reason=ErrorCode.VERSION_MISMATCH,
+                detail=(
+                    f"OpenFOAM {version or '(unknown release)'} runs, but is not in the "
+                    f"supported range ({', '.join(self._manifest.versions)})"
+                ),
+                kind=session.kind,
+                openfoam_version=version,
+            )
+        return RuntimeStatus(state=RuntimeState.READY, kind=session.kind, openfoam_version=version)
+
     @staticmethod
     def _parse_canary(output: str) -> str | None:
         """Extract the version from the canary's output.
@@ -313,7 +458,14 @@ class RuntimeManager:
         log_event(_log, Event.RUNTIME_VERIFY_RESULT, state=first_failure.state.value)
         return first_failure
 
-    def session_for(self, installation: Installation) -> NativeSession:
+    def session_for(self, installation: Installation) -> RuntimeSession:
+        if installation.platform_dir is not None:
+            return WindowsNativeSession(
+                installation.bundle,
+                platform_dir=installation.platform_dir,
+                version=installation.version,
+                mpi=self._manifest.windows_native.get("mpiexec"),
+            )
         return NativeSession(installation.launcher, bashrc=installation.bashrc)
 
     def environment(
@@ -333,6 +485,20 @@ class RuntimeManager:
         Values are read one per line in the order requested, so a caller gets a
         dictionary rather than having to parse.
         """
+        if installation.is_windows_native:
+            # No shell to ask, and nothing to ask it: the layout is the upstream
+            # tree, so the variables are paths under the installation.
+            known = {
+                "WM_PROJECT_DIR": installation.bundle,
+                "FOAM_TUTORIALS": installation.bundle / "tutorials",
+                "FOAM_ETC": installation.bundle / "etc",
+            }
+            return {
+                name: str(known[name])
+                for name in variables
+                if name in known and known[name].exists()
+            }
+
         script = "; ".join(f'printf "%s\\n" "${{{name}}}"' for name in variables)
         session = self.session_for(installation)
         try:
@@ -353,6 +519,11 @@ class RuntimeManager:
 
     def tutorials_dir(self, installation: Installation) -> Path | None:
         """Where this installation keeps its tutorial suite, or ``None``."""
+        if installation.is_windows_native:
+            key = installation.version or installation.bundle.name
+            return unpack_tutorials(
+                installation.bundle / "tutorials", self._cache_dir / "tutorials" / key
+            )
         value = self.environment(installation, ("FOAM_TUTORIALS",)).get("FOAM_TUTORIALS")
         if not value:
             return None

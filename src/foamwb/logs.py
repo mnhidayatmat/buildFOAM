@@ -94,6 +94,15 @@ class Event(StrEnum):
     log cannot answer: an absent ``run.begin`` looks identical whether the user
     cancelled, the panel declined, or the button never worked at all."""
 
+    # The agent interface (DEC-24). Logged per call because a case an agent has
+    # changed looks, on disk, exactly like one a person changed — and "was it
+    # the agent?" is then the first question a diagnostics bundle must answer.
+    MCP_START = "mcp.start"
+    MCP_STOP = "mcp.stop"
+    MCP_INITIALIZE = "mcp.initialize"
+    MCP_TOOL_CALL = "mcp.tool.call"
+    MCP_TOOL_ERROR = "mcp.tool.error"
+
     # Anything that surfaced a §9 code to the user
     ERROR_RAISED = "error.raised"
 

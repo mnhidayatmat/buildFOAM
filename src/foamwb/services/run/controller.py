@@ -418,7 +418,10 @@ class RunController:
             return StageResult(
                 name=stage.name,
                 state=StageState.FAILED,
-                reason=ErrorCode.SOLVER_NOT_FOUND,
+                # A session that refuses to start names its own reason (E-C18
+                # for a path the build cannot open); anything else is the
+                # classic cause, a program that is not there.
+                reason=getattr(exc, "code", None) or ErrorCode.SOLVER_NOT_FOUND,
                 detail=str(exc),
                 wall_seconds=time.monotonic() - started,
             )

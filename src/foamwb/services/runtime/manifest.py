@@ -152,6 +152,15 @@ class Manifest:
     def default_release(self) -> Release:
         return self.release(self.default_version)
 
+    @property
+    def windows_native(self) -> dict[str, Any]:
+        """Where a native Windows build is looked for, and how MPI is found (FR-N).
+
+        Empty when the manifest predates FR-N, which simply means no native
+        Windows installation is searched for beyond ``WM_PROJECT_DIR``.
+        """
+        return dict(self.raw.get("windows_native") or {})
+
 
 def _validate(raw: dict[str, Any]) -> None:
     if raw.get("schema") != 1:

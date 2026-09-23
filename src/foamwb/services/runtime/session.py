@@ -1,7 +1,8 @@
 """The runtime abstraction: "run a command in an OpenFOAM environment" (§4.2).
 
-Three implementations land later — ``NativeSession`` (macOS, M2), ``WslSession``
-(Windows, M3) and ``DockerSession`` (macOS fallback, FR-R10). Everything above
+Implementations: ``NativeSession`` (macOS and Linux, M2), ``WslSession``
+(Windows, M3), ``WindowsNativeSession`` (a native Windows build, FR-N) and, later,
+``DockerSession`` (macOS fallback, FR-R10). Everything above
 this seam is written once, against this interface.
 
 The interface carries three responsibilities that are easy to get wrong if they
@@ -26,9 +27,12 @@ because an MPI job is a tree and signalling only its root orphans the ranks
 from __future__ import annotations
 
 import abc
+import threading
 from collections.abc import Iterator, Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
+
+from foamwb.logs import Event, get_logger, log_event
 
 __all__ = ["Process", "RuntimeKind", "RuntimeSession"]
 
@@ -44,6 +48,10 @@ class RuntimeKind(StrEnum):
 
     DOCKER = "docker"
     """A container, used as the macOS fallback (FR-R10)."""
+
+    WINDOWS_NATIVE = "windows-native"
+    """OpenFOAM compiled for Windows itself — a MinGW build with MS-MPI, run as
+    ordinary ``.exe`` files with no bash, WSL or container in between (FR-N)."""
 
 
 class Process(abc.ABC):
@@ -152,6 +160,56 @@ class RuntimeSession(abc.ABC):
         still running; NFR-R6 requires shutdown to reap them rather than orphan
         them.
         """
+
+    def run_to_completion(
+        self,
+        argv: Sequence[str],
+        *,
+        cwd: PurePosixPath | None = None,
+        timeout: float | None = None,
+    ) -> tuple[int, str]:
+        """Run and collect all output. For short probes, not for solvers.
+
+        Shared by every session: it needs nothing but :meth:`run` and the
+        :class:`Process` contract, so each implementation gets the same timeout
+        behaviour rather than its own approximation of it.
+
+        A solver's log is streamed so the UI stays responsive at 5 000 lines/s
+        (NFR-P3); buffering one in memory would defeat that and could be
+        gigabytes.
+
+        ``timeout`` bounds the *whole* call. Reading a pipe blocks, so a deadline
+        applied only to :meth:`Process.wait` would never fire — the read loop
+        would sit there forever and the wizard would hang on a command that never
+        answers. A watchdog kills the process group instead, which closes the pipe
+        and ends the loop.
+        """
+        process = self.run(argv, cwd=cwd)
+        timed_out = threading.Event()
+
+        watchdog: threading.Timer | None = None
+        if timeout is not None:
+
+            def _expire() -> None:
+                timed_out.set()
+                process.kill()
+
+            watchdog = threading.Timer(timeout, _expire)
+            watchdog.daemon = True
+            watchdog.start()
+
+        try:
+            output = list(process.lines())
+            code = process.wait()
+        finally:
+            if watchdog is not None:
+                watchdog.cancel()
+
+        if timed_out.is_set():
+            raise TimeoutError(f"{argv[0]!r} did not finish within {timeout}s")
+
+        log_event(get_logger("runtime.session"), Event.COMMAND_END, argv=list(argv), exit_code=code)
+        return code, "\n".join(output)
 
     def __enter__(self) -> RuntimeSession:
         return self

@@ -40,11 +40,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from foamwb.branding import CASE_METADATA_DIR
 from foamwb.logs import Event, get_logger, log_event
-from foamwb.services.case import CaseService, RunRecord
+from foamwb.services.case import CaseService
 from foamwb.services.monitor import MonitorService
 from foamwb.services.run import RunPlan, RunResult, StageState, StopMode
+from foamwb.services.run.history import log_dir_for, next_run_id, run_record
 from foamwb.services.runtime import RuntimeSession
 from foamwb.ui.run_worker import RunWorker
 from foamwb.ui.theme import Palette
@@ -244,14 +244,14 @@ class RunView(QWidget):
         # A fresh id per run, so logs accumulate rather than overwrite. The
         # previous fixed "r-0001" meant every run destroyed the evidence of the
         # one before it — which is exactly what a user comparing two runs needs.
-        self._run_id = self._next_run_id()
+        self._run_id = next_run_id(self._case)
         self._run_started = datetime.now(UTC)
         self._banner.clear()
 
         self._worker = RunWorker(
             self._session,
             plan,
-            log_dir=self._case / CASE_METADATA_DIR / "logs" / self._run_id,
+            log_dir=log_dir_for(self._case, self._run_id),
         )
         self._worker.lines.connect(self._on_lines)
         self._worker.stage_changed.connect(self._on_stage)
@@ -356,70 +356,33 @@ class RunView(QWidget):
 
     # -- history -----------------------------------------------------------
 
-    def _next_run_id(self) -> str:
-        """The next unused ``r-NNNN``, read from the directory rather than a counter.
-
-        Reading the directory means a restarted application continues the
-        numbering instead of overwriting r-0001 again.
-        """
-        if self._case is None:
-            return "r-0001"
-        logs = self._case / CASE_METADATA_DIR / "logs"
-        used = {p.name for p in logs.glob("r-*")} if logs.is_dir() else set()
-        index = 1
-        while f"r-{index:04d}" in used:
-            index += 1
-        return f"r-{index:04d}"
-
     def _record_run(self, result: RunResult) -> None:
         """Append this run to the case's history (FR-S7).
 
         Failing to record must never surface as a run failure: the run happened,
         and its result is already on screen. A history that cannot be written is
-        a lost note, not a lost result.
+        a lost note, not a lost result. The record itself is built by
+        :mod:`foamwb.services.run.history`, which the agent interface shares, so
+        a run lands in the history identically whichever route started it.
         """
         if self._case is None:
             return
+        plan = self._running_plan or self._plan
         try:
             case = self._cases.open(self._case)
             self._cases.record_run(
                 case,
-                RunRecord(
-                    id=self._run_id,
-                    started=self._run_started.isoformat(timespec="seconds"),
-                    finished=datetime.now(UTC).isoformat(timespec="seconds"),
-                    exit_code=(result.failed_stage.exit_code if result.failed_stage else 0),
-                    plan=tuple(s.name for s in result.stages),
-                    n_procs=(self._running_plan or self._plan).n_procs
-                    if (self._running_plan or self._plan)
-                    else 1,
-                    wall_seconds=round(result.wall_seconds, 3),
-                    final_time=self._latest_time(),
-                    converged=result.succeeded,
-                    log_dir=self._run_id,
+                run_record(
+                    self._case,
+                    self._run_id,
+                    started=self._run_started,
+                    finished=datetime.now(UTC),
+                    result=result,
+                    n_procs=plan.n_procs if plan else 1,
                 ),
             )
         except (OSError, ValueError) as exc:
             log_event(_log, Event.ERROR_RAISED, where="record_run", error=str(exc))
-
-    def _latest_time(self) -> str | None:
-        """The last time directory the run wrote, which is what a user looks for.
-
-        Named from the directory rather than from ``endTime``: a stopped or
-        diverged run has an ``endTime`` it never reached, and reporting it would
-        describe a result the case does not contain.
-        """
-        if self._case is None:
-            return None
-        times = []
-        for path in self._case.iterdir():
-            if not path.is_dir():
-                continue
-            try:
-                times.append((float(path.name), path.name))
-            except ValueError:
-                continue
-        return max(times)[1] if times else None
 
     @Slot(str)
     def _on_failed(self, message: str) -> None:

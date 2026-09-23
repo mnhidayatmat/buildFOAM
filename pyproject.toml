@@ -49,6 +49,9 @@ dependencies = [
 # The entry point lives in the presentation layer because it constructs a
 # QApplication. A src/foamwb/__main__.py would put a Qt import outside ui/.
 buildfoam = "foamwb.ui.app:main"
+# The agent interface (DEC-24). Qt-free, so it lives outside ui/ and an MCP
+# client can launch it on a machine with no display.
+buildfoam-mcp = "foamwb.mcp.server:main"
 
 [project.urls]
 Homepage = "https://github.com/mnhidayatmat/buildFOAM"

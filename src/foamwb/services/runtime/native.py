@@ -31,7 +31,6 @@ import os
 import shlex
 import signal
 import subprocess
-import threading
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 
@@ -200,52 +199,6 @@ class NativeSession(RuntimeSession):
         process = NativeProcess(popen, argv)
         self._processes.append(process)
         return process
-
-    def run_to_completion(
-        self,
-        argv: Sequence[str],
-        *,
-        cwd: PurePosixPath | None = None,
-        timeout: float | None = None,
-    ) -> tuple[int, str]:
-        """Run and collect all output. For short probes, not for solvers.
-
-        A solver's log is streamed so the UI stays responsive at 5 000 lines/s
-        (NFR-P3); buffering one in memory would defeat that and could be
-        gigabytes.
-
-        ``timeout`` bounds the *whole* call. Reading a pipe blocks, so a deadline
-        applied only to :meth:`Process.wait` would never fire — the read loop
-        would sit there forever and the wizard would hang on a command that never
-        answers. A watchdog kills the process group instead, which closes the pipe
-        and ends the loop.
-        """
-        process = self.run(argv, cwd=cwd)
-        timed_out = threading.Event()
-
-        watchdog: threading.Timer | None = None
-        if timeout is not None:
-
-            def _expire() -> None:
-                timed_out.set()
-                process.kill()
-
-            watchdog = threading.Timer(timeout, _expire)
-            watchdog.daemon = True
-            watchdog.start()
-
-        try:
-            output = list(process.lines())
-            code = process.wait()
-        finally:
-            if watchdog is not None:
-                watchdog.cancel()
-
-        if timed_out.is_set():
-            raise TimeoutError(f"{argv[0]!r} did not finish within {timeout}s")
-
-        log_event(_log, Event.COMMAND_END, argv=list(argv), exit_code=code)
-        return code, "\n".join(output)
 
     # -- path translation --------------------------------------------------
 
