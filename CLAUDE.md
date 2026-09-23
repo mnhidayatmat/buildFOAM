@@ -168,4 +168,6 @@ Modal dialogs are injectable (`Shell.set_dialogs`). A hard-coded `QFileDialog` b
 - User-facing failures carry a §9 code from `foamwb/codes.py`, so support starts from a code rather than a screenshot. Add codes; never renumber them.
 - Absence is usually a state, not an error — `ParaViewService.locate()` returns `None`, a missing runtime is `RuntimeState.MISSING` with `E-R10`.
 - Anything the application writes into a user's case is fenced, disclosed and byte-reversibly removable (`services/fence.py`, NFR-C3). Removing it restores the file exactly.
+- Third-party notices are **per platform**, because the wheels bundle different binaries: `THIRD-PARTY-NOTICES` (macOS) and `THIRD-PARTY-NOTICES.windows`. `tools/notices.py` writes and checks the one for the platform it runs on, so after a dependency change regenerate it on both.
+- Tests that create symlinks use `conftest.symlink_or_skip` — Windows refuses them without Developer Mode or elevation.
 - `tests/fakes.py` holds a hand-written `FakeSession`; prefer it to mocks. Tests that need real OpenFOAM are marked `requires_runtime`.

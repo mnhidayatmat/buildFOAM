@@ -410,3 +410,20 @@ class TestPathsTheBuildCannotOpen:
         assert stage.state is StageState.FAILED
         assert stage.reason is ErrorCode.PATH_NOT_REPRESENTABLE
         assert started == []
+
+
+def test_plan_provision_adopts_a_working_native_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-R1 on Windows: a working native build means nothing to download."""
+    from foamwb.services.runtime.provision import Strategy
+
+    version = load_manifest().default_version
+    make_install(tmp_path / "roots" / "OpenFOAM-v0001", version=version)
+    monkeypatch.setattr(
+        WindowsNativeSession,
+        "run_to_completion",
+        lambda self, argv, *, cwd=None, timeout=None: (0, "Usage: blockMesh"),
+    )
+    manager = RuntimeManager(application_dirs=(), windows_roots=(tmp_path / "roots",))
+    assert manager.plan_provision(version).strategy is Strategy.ADOPT

@@ -134,6 +134,17 @@ class TestThePlanIsHonest:
         refactor that reclassified it would be caught here."""
         from foamwb import paths
 
+        if paths.current_platform() == paths.Platform.WINDOWS:
+            # The cases live inside the distribution there, so what must not be
+            # removed silently is the distribution itself (FR-R9, FR-R12).
+            held = [
+                i
+                for i in plan_uninstall(include_sizes=False).items
+                if i.kind is RemovalKind.RUNTIME_HOLDING_WORK
+            ]
+            assert len(held) == 1
+            return
+
         cases = paths.macos_cases_dir()
         found = next(
             (i for i in plan_uninstall(include_sizes=False).items if i.path == cases), None

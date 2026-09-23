@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import symlink_or_skip
 from foamwb.codes import ErrorCode
 from foamwb.services.export import (
     ExportResult,
@@ -98,7 +99,7 @@ class TestExportingAndVerifying:
 
     def test_symlinks_are_preserved_not_followed(self, cases, tmp_path) -> None:
         """The tutorial suite links 0 to 0.orig; following would double-count."""
-        (cases / "cavity" / "0.orig").symlink_to(cases / "cavity" / "0")
+        symlink_or_skip(cases / "cavity" / "0.orig", cases / "cavity" / "0", directory=True)
         result = export_cases(plan_export(cases, tmp_path / "out"))
         assert result.succeeded
         assert (tmp_path / "out" / "cavity" / "0.orig").is_symlink()

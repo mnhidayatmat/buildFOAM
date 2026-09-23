@@ -259,7 +259,8 @@ class TestPerformanceStaysTrue:
         validate_case(service.open(root))
         elapsed = time.perf_counter() - started
 
-        # NFR-P2 budgets 2 s. Measured at ~26 ms on the development machine; a
-        # tenth of the budget still leaves a 20x margin and will not flake on a
-        # loaded CI box.
-        assert elapsed < 0.2, f"took {elapsed * 1000:.0f} ms against a 2000 ms budget"
+        # NFR-P2 budgets 2 s. Measured at ~26 ms on the macOS development
+        # machine and ~230 ms on Windows, where every one of the 200 files is
+        # opened past the on-access antivirus scan. A quarter of the budget keeps
+        # an 8x margin on the slower platform without flaking there.
+        assert elapsed < 0.5, f"took {elapsed * 1000:.0f} ms against a 2000 ms budget"

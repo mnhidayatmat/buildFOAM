@@ -79,7 +79,20 @@ DATA = [
     # §13.5: several redistributed components require attribution, and a notice
     # that only exists in the repository does not travel with the binary.
     (str(ROOT / "LICENSE"), "."),
-    (str(ROOT / "THIRD-PARTY-NOTICES"), "."),
+    # The notices generated on this platform, since the wheels differ (§13.5).
+    # PyInstaller keeps the source name, so the Windows file is renamed by the
+    # installer; a frozen app run directly carries it under its generated name.
+    (
+        str(
+            ROOT
+            / (
+                "THIRD-PARTY-NOTICES.windows"
+                if sys.platform == "win32"
+                else "THIRD-PARTY-NOTICES"
+            )
+        ),
+        ".",
+    ),
 ]
 
 

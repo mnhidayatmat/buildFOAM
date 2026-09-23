@@ -130,20 +130,34 @@ class TestTheFoamStub:
         assert ensure_foam_stub(case).read_text() == "marker"
 
 
+def _file_name_literal(script: str) -> str:
+    """The value of the ``FileName=`` argument in a generated script."""
+    import ast
+
+    for node in ast.walk(ast.parse(script)):
+        if isinstance(node, ast.keyword) and node.arg == "FileName":
+            return ast.literal_eval(node.value)
+    raise AssertionError("no FileName= in the script")
+
+
 class TestMeshInspection:
     """FR-P8 — the mesh, at the initial state, with no reader chosen by hand."""
 
     def test_the_script_names_the_stub(self, tmp_path) -> None:
         case = _case(tmp_path)
         script = mesh_inspection_script(case, foam_stub_path(case))
-        assert str(foam_stub_path(case)) in script
+        assert _file_name_literal(script) == str(foam_stub_path(case))
 
     def test_a_path_with_spaces_survives_as_a_python_literal(self, tmp_path) -> None:
-        """repr, not quotes-by-hand: the case here is called "my case"."""
+        """repr, not quotes-by-hand: the case here is called "my case".
+
+        Judged by what the literal *evaluates to*, not by its spelling — a
+        Windows path's backslashes are doubled in the source and single in the
+        value, and only the value reaches ParaView."""
         case = _case(tmp_path)
         script = mesh_inspection_script(case, foam_stub_path(case))
-        assert "'/" in script or '"/' in script
         compile(script, "<generated>", "exec")
+        assert Path(_file_name_literal(script)) == foam_stub_path(case)
 
     def test_a_unicode_path_still_compiles(self, tmp_path) -> None:
         case = tmp_path / "kes ujian · 1"

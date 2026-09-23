@@ -79,7 +79,8 @@ Section "Application" SecApp
 
   ; Attribution travels with the binary, not only with the repository (§13.5).
   File "..\LICENSE"
-  File "..\THIRD-PARTY-NOTICES"
+  ; Generated on Windows: the Windows wheels bundle different components.
+  File "/oname=THIRD-PARTY-NOTICES" "..\THIRD-PARTY-NOTICES.windows"
 
   WriteRegStr HKCU "Software\${APP_NAME}" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\${APP_NAME}" "Version" "${APP_VERSION}"

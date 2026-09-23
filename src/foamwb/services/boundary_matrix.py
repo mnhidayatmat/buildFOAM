@@ -97,6 +97,11 @@ class BoundaryMatrix:
 def field_files(case: Path) -> list[Path]:
     """Field files in the initial-condition directory, in name order.
 
+    Sorted by the name *string*, not by ``Path``: Windows paths compare
+    case-insensitively, so sorting ``Path`` objects put ``p`` before ``U`` there
+    and after it everywhere else, and the matrix's columns came out in a
+    different order for the same case depending on the machine.
+
     ``0.orig`` is read when there is no ``0``, so the matrix works on a freshly
     imported tutorial — the majority ship that way — rather than only after a run
     has been prepared.
@@ -105,11 +110,14 @@ def field_files(case: Path) -> list[Path]:
         directory = case / name
         if directory.is_dir():
             return sorted(
-                entry
-                for entry in directory.iterdir()
-                if entry.is_file()
-                and entry.name not in _NOT_FIELDS
-                and not entry.name.startswith(".")
+                (
+                    entry
+                    for entry in directory.iterdir()
+                    if entry.is_file()
+                    and entry.name not in _NOT_FIELDS
+                    and not entry.name.startswith(".")
+                ),
+                key=lambda entry: entry.name,
             )
     return []
 
