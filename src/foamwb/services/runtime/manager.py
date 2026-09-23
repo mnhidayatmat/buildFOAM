@@ -30,6 +30,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from foamwb import paths
 from foamwb.codes import ErrorCode
 from foamwb.logs import Event, get_logger, log_event
 from foamwb.services.runtime.manifest import Manifest, load_manifest
@@ -48,6 +49,7 @@ from foamwb.services.runtime.windows import (
     WindowsNativeSession,
     find_platform_dir,
     read_api_version,
+    unpack_tutorials,
 )
 
 __all__ = ["Installation", "RuntimeManager"]
@@ -130,9 +132,11 @@ class RuntimeManager:
         application_dirs: tuple[Path, ...] = _APPLICATION_DIRS,
         provisioner: Provisioner | None = None,
         windows_roots: tuple[Path, ...] | None = None,
+        cache_dir: Path | None = None,
     ) -> None:
         self._manifest = manifest or load_manifest()
         self._application_dirs = application_dirs
+        self._cache_dir = cache_dir or paths.cache_dir()
         self._windows_roots = (
             windows_roots if windows_roots is not None else default_windows_roots(self._manifest)
         )
@@ -515,6 +519,11 @@ class RuntimeManager:
 
     def tutorials_dir(self, installation: Installation) -> Path | None:
         """Where this installation keeps its tutorial suite, or ``None``."""
+        if installation.is_windows_native:
+            key = installation.version or installation.bundle.name
+            return unpack_tutorials(
+                installation.bundle / "tutorials", self._cache_dir / "tutorials" / key
+            )
         value = self.environment(installation, ("FOAM_TUTORIALS",)).get("FOAM_TUTORIALS")
         if not value:
             return None

@@ -198,10 +198,40 @@ class TestDiscovery:
         assert session.version == installation.version
 
     def test_tutorials_without_a_shell(self, tmp_path: Path) -> None:
-        make_install(tmp_path / "roots" / "OpenFOAM-v0001")
-        manager = RuntimeManager(application_dirs=(), windows_roots=(tmp_path / "roots",))
+        root = make_install(tmp_path / "roots" / "OpenFOAM-v0001")
+        (root / "tutorials" / "incompressible").mkdir()
+        manager = RuntimeManager(
+            application_dirs=(), windows_roots=(tmp_path / "roots",), cache_dir=tmp_path / "c"
+        )
         installation = next(i for i in manager.discover() if i.is_windows_native)
         assert manager.tutorials_dir(installation) == installation.bundle / "tutorials"
+
+    def test_zipped_tutorials_are_unpacked_once(self, tmp_path: Path) -> None:
+        root = make_install(tmp_path / "roots" / "OpenFOAM-v0001")
+        with zipfile.ZipFile(root / "tutorials" / "tutorials.zip", "w") as bundle:
+            bundle.writestr("incompressible/icoFoam/cavity/cavity/system/controlDict", "x 1;")
+        manager = RuntimeManager(
+            application_dirs=(), windows_roots=(tmp_path / "roots",), cache_dir=tmp_path / "c"
+        )
+        installation = next(i for i in manager.discover() if i.is_windows_native)
+        found = manager.tutorials_dir(installation)
+        assert found is not None and found.is_relative_to(tmp_path / "c")
+        assert (found / "incompressible/icoFoam/cavity/cavity/system/controlDict").is_file()
+        # Reused, not re-extracted: a marker left in the tree survives.
+        (found / "marker").write_text("kept")
+        assert manager.tutorials_dir(installation) == found
+        assert (found / "marker").is_file()
+
+    def test_an_archive_that_escapes_is_refused(self, tmp_path: Path) -> None:
+        from foamwb.services.runtime.windows import unpack_tutorials
+
+        tutorials = tmp_path / "tutorials"
+        tutorials.mkdir()
+        with zipfile.ZipFile(tutorials / "tutorials.zip", "w") as bundle:
+            bundle.writestr("../../escaped.txt", "no")
+        assert unpack_tutorials(tutorials, tmp_path / "cache" / "t") is None
+        assert not (tmp_path / "escaped.txt").exists()
+        assert not (tmp_path / "cache" / "t").exists()
 
 
 class TestVerify:

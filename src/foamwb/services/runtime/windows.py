@@ -37,6 +37,7 @@ import os
 import re
 import shutil
 import subprocess
+import zipfile
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 
@@ -54,6 +55,7 @@ __all__ = [
     "check_representable",
     "find_platform_dir",
     "read_api_version",
+    "unpack_tutorials",
 ]
 
 _log = get_logger("runtime.windows")
@@ -106,6 +108,47 @@ def read_api_version(root: Path) -> str | None:
         return None
     match = _API.search(text)
     return f"v{match.group(1)}" if match else None
+
+
+def unpack_tutorials(tutorials: Path, cache: Path) -> Path | None:
+    """The tutorial tree of a build that ships it zipped, unpacked once.
+
+    Some native Windows builds carry ``tutorials/tutorials.zip`` and no tree —
+    14 000 small files are slow to install and slower to uninstall — but every
+    consumer of ``FOAM_TUTORIALS`` wants directories: the library, the golden
+    gate, a user opening *cavity*. The archive is unpacked into ``cache`` on
+    first use and reused after. Extraction goes to a temporary directory that is
+    renamed into place, so an interrupted unpack is never mistaken for a
+    complete one; and an entry that would land outside the target is refused,
+    as the content library refuses one (FR-L3).
+    """
+    if not tutorials.is_dir():
+        return None
+    if any(child.is_dir() for child in tutorials.iterdir()):
+        return tutorials
+    archives = sorted(tutorials.glob("*.zip"))
+    if not archives:
+        return None
+    if cache.is_dir():
+        return cache
+
+    staging = cache.with_name(cache.name + ".partial")
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True)
+    try:
+        with zipfile.ZipFile(archives[0]) as bundle:
+            for member in bundle.infolist():
+                target = (staging / member.filename).resolve()
+                if not target.is_relative_to(staging.resolve()):
+                    raise ValueError(f"{member.filename} would unpack outside the tutorials")
+            bundle.extractall(staging)
+    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+        shutil.rmtree(staging, ignore_errors=True)
+        log_event(_log, Event.ERROR_RAISED, where="unpack_tutorials", error=str(exc))
+        return None
+    staging.replace(cache)
+    return cache
 
 
 class UnrepresentablePathError(OSError):
